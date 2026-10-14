@@ -1,0 +1,45 @@
+name: systems-r04
+services:
+  primary:
+    image: postgres:16@sha256:95206741a5b214807675e14165369d05b93a9cf692223b616d07cca227e74b0b
+    environment:
+      POSTGRES_USER: r04
+      POSTGRES_PASSWORD: r04_local_only
+      POSTGRES_DB: r04
+    command: [postgres, -c, wal_level=logical, -c, max_replication_slots=8, -c, max_wal_senders=8, -c, min_wal_size=32MB, -c, max_wal_size=64MB]
+    ports: ["127.0.0.1:55440:5432"]
+    volumes:
+      - primary-data:/var/lib/postgresql/data
+      - ../labs/replication/postgres/init.sql:/docker-entrypoint-initdb.d/01-r04.sql:ro
+      - ../labs/replication/postgres/replication.sh:/docker-entrypoint-initdb.d/02-r04.sh:ro
+    healthcheck:
+      test: [CMD-SHELL, "pg_isready -h 127.0.0.1 -U r04 -d r04"]
+      interval: 1s
+      timeout: 3s
+      retries: 60
+  standby:
+    image: postgres:16@sha256:95206741a5b214807675e14165369d05b93a9cf692223b616d07cca227e74b0b
+    user: postgres
+    environment:
+      PGPASSWORD: r04_replica_only
+    entrypoint: [bash, /r04/standby.sh]
+    depends_on:
+      primary:
+        condition: service_healthy
+    ports: ["127.0.0.1:55441:5432"]
+    volumes:
+      - standby-data:/var/lib/postgresql/data
+      - ../labs/replication/postgres/standby.sh:/r04/standby.sh:ro
+  subscriber:
+    image: postgres:16@sha256:95206741a5b214807675e14165369d05b93a9cf692223b616d07cca227e74b0b
+    environment:
+      POSTGRES_USER: r04
+      POSTGRES_PASSWORD: r04_local_only
+      POSTGRES_DB: r04
+    ports: ["127.0.0.1:55442:5432"]
+    volumes:
+      - subscriber-data:/var/lib/postgresql/data
+volumes:
+  primary-data:
+  standby-data:
+  subscriber-data:

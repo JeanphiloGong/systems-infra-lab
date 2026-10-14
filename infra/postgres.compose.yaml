@@ -1,0 +1,19 @@
+name: systems-infra-lab
+services:
+  postgres:
+    image: postgres:16@sha256:95206741a5b214807675e14165369d05b93a9cf692223b616d07cca227e74b0b
+    environment:
+      POSTGRES_USER: systems_lab
+      POSTGRES_PASSWORD: systems_lab_local_only
+      POSTGRES_DB: systems_lab
+    ports:
+      - "127.0.0.1:${SYSTEMS_LAB_POSTGRES_PORT:-55432}:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U systems_lab -d systems_lab"]
+      interval: 2s
+      timeout: 3s
+      retries: 20
+volumes:
+  postgres-data:

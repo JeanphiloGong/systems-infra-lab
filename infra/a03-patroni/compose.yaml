@@ -1,0 +1,46 @@
+name: systems-a03-patroni
+services:
+  p1:
+    build: .
+    user: postgres
+    hostname: p1
+    extra_hosts: ["host.docker.internal:host-gateway"]
+    environment:
+      PATRONI_NAME: p1
+      PATRONI_SCOPE: a03
+      PATRONI_ETCD3_HOSTS: host.docker.internal:22379
+      PATRONI_RESTAPI_CONNECT_ADDRESS: p1:8008
+      PATRONI_POSTGRESQL_CONNECT_ADDRESS: p1:5432
+      PATRONI_POSTGRESQL_DATA_DIR: /var/lib/postgresql/data/pgdata
+      PGDATA: /var/lib/postgresql/data/pgdata
+      PATRONI_POSTGRESQL_PGPASS: /tmp/pgpass
+      PATRONI_SUPERUSER_USERNAME: postgres
+      PATRONI_SUPERUSER_PASSWORD: postgres
+      PATRONI_REPLICATION_USERNAME: replicator
+      PATRONI_REPLICATION_PASSWORD: replicator
+    ports: ["127.0.0.1:55461:5432", "127.0.0.1:18081:8008"]
+    command: ["patroni", "/etc/patroni.yml"]
+    volumes: ["p1-data:/var/lib/postgresql/data", "./patroni.yml:/etc/patroni.yml:ro"]
+  p2:
+    build: .
+    user: postgres
+    hostname: p2
+    extra_hosts: ["host.docker.internal:host-gateway"]
+    environment:
+      PATRONI_NAME: p2
+      PATRONI_SCOPE: a03
+      PATRONI_ETCD3_HOSTS: host.docker.internal:22379
+      PATRONI_RESTAPI_CONNECT_ADDRESS: p2:8008
+      PATRONI_POSTGRESQL_CONNECT_ADDRESS: p2:5432
+      PATRONI_POSTGRESQL_DATA_DIR: /var/lib/postgresql/data/pgdata
+      PGDATA: /var/lib/postgresql/data/pgdata
+      PATRONI_SUPERUSER_USERNAME: postgres
+      PATRONI_SUPERUSER_PASSWORD: postgres
+      PATRONI_REPLICATION_USERNAME: replicator
+      PATRONI_REPLICATION_PASSWORD: replicator
+    ports: ["127.0.0.1:55462:5432", "127.0.0.1:18082:8008"]
+    command: ["patroni", "/etc/patroni.yml"]
+    volumes: ["p2-data:/var/lib/postgresql/data", "./patroni.yml:/etc/patroni.yml:ro"]
+volumes:
+  p1-data:
+  p2-data:

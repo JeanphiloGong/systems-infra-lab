@@ -1,0 +1,29 @@
+scope: a03
+namespace: /service/
+restapi:
+  listen: 0.0.0.0:8008
+bootstrap:
+  dcs:
+    ttl: 20
+    loop_wait: 3
+    retry_timeout: 3
+    postgresql:
+      use_pg_rewind: false
+      use_slots: true
+      pg_hba:
+        - host replication replicator 0.0.0.0/0 md5
+        - host all all 0.0.0.0/0 md5
+      parameters:
+        wal_level: replica
+        hot_standby: 'on'
+        wal_keep_size: 64MB
+  initdb:
+    - encoding: UTF8
+    - locale: C
+postgresql:
+  listen: 0.0.0.0:5432
+tags:
+  nofailover: false
+  noloadbalance: false
+  clonefrom: false
+  nosync: false

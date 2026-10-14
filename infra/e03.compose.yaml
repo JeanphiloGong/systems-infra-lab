@@ -1,0 +1,20 @@
+services:
+  postgres:
+    image: postgres:16.4
+    environment:
+      POSTGRES_USER: a01
+      POSTGRES_PASSWORD: a01_local_only
+      POSTGRES_DB: a01
+      POSTGRES_HOST_AUTH_METHOD: trust
+    command: ["postgres", "-c", "hba_file=/etc/postgresql/e03.pg_hba.conf", "-c", "wal_level=replica", "-c", "max_wal_senders=4", "-c", "archive_mode=on", "-c", "archive_command=sh /etc/postgresql/a01-archive.sh %p %f"]
+    volumes:
+      - ./e03.pg_hba.conf:/etc/postgresql/e03.pg_hba.conf:ro
+      - ./a01-archive.sh:/etc/postgresql/a01-archive.sh:ro
+      - /tmp/a01-wal-archive:/archive
+    ports:
+      - "127.0.0.1:55452:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U a01 -d a01"]
+      interval: 2s
+      timeout: 3s
+      retries: 20

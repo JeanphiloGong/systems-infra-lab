@@ -1,0 +1,15 @@
+name: systems-e01
+services:
+  postgres:
+    image: postgres:16@sha256:95206741a5b214807675e14165369d05b93a9cf692223b616d07cca227e74b0b
+    environment:
+      POSTGRES_USER: e01
+      POSTGRES_PASSWORD: e01_local_only
+      POSTGRES_DB: e01
+    command: [postgres, -c, wal_level=logical, -c, max_replication_slots=8, -c, max_wal_senders=8, -c, max_wal_size=64MB]
+    ports: ["127.0.0.1:55450:5432"]
+    healthcheck:
+      test: [CMD-SHELL, "pg_isready -h 127.0.0.1 -U e01 -d e01"]
+      interval: 1s
+      timeout: 3s
+      retries: 60

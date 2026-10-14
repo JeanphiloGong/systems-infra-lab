@@ -1,0 +1,12 @@
+services:
+  pgbouncer:
+    image: edoburu/pgbouncer:v1.24.1-p0@sha256:25837f085deeafaf085150b7b13e98e58ee29310e6453fc24be2e444100cbbf7
+    platform: linux/amd64
+    depends_on:
+      postgres:
+        condition: service_healthy
+    ports:
+      - "127.0.0.1:${SYSTEMS_LAB_POOL_PORT:-56432}:5432"
+    volumes:
+      - ./pgbouncer.ini:/etc/pgbouncer/pgbouncer.ini:ro
+      - ./pgbouncer-users.txt:/etc/pgbouncer/userlist.txt:ro
