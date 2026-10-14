@@ -1,0 +1,49 @@
+from __future__ import annotations
+
+from dataclasses import dataclass
+
+
+@dataclass(frozen=True)
+class Entry:
+    position: int
+    key: str
+    value: str
+
+
+class Leader:
+    def __init__(self) -> None:
+        self.log: list[Entry] = []
+
+    def write(self, key: str, value: str) -> Entry:
+        entry = Entry(len(self.log) + 1, key, value)
+        self.log.append(entry)
+        return entry
+
+
+class Follower:
+    def __init__(self) -> None:
+        self.data: dict[str, str] = {}
+        self.applied_position = 0
+        self.pending: list[Entry] = []
+
+    def receive(self, entries: list[Entry]) -> None:
+        self.pending.extend(entries)
+
+    def apply_one(self) -> None:
+        if not self.pending:
+            return
+        entry = self.pending.pop(0)
+        if entry.position != self.applied_position + 1:
+            raise ValueError("log entries must be applied in order")
+        self.data[entry.key] = entry.value
+        self.applied_position = entry.position
+
+
+if __name__ == "__main__":
+    leader = Leader()
+    follower = Follower()
+    first = leader.write("order-1", "created")
+    follower.receive([first])
+    print(follower.data)
+    follower.apply_one()
+    print(follower.data)

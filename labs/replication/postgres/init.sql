@@ -1,0 +1,1 @@
+CREATE ROLE r04_replica WITH LOGIN REPLICATION PASSWORD 'r04_replica_only';

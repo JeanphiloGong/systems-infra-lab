@@ -1,0 +1,1 @@
+"""Leader-follower replication checkpoints."""
