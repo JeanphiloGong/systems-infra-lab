@@ -26,6 +26,8 @@ bash infra/a03-patroni/lab.sh down
 
 启动后等待两个 /patroni 返回 running 和 primary/replica，再执行 probe。清理命令删除本实验两节点卷和 etcd 容器。不要指向其他项目或现有业务实例。
 
+将下面的完整代码保存为 `labs/recovery/ha/patroni_probe.py`；文件已存在时，以本版内容替换该文件。
+
 <!-- checkpoint: labs/recovery/ha/patroni_probe.py -->
 
 ```python
@@ -139,6 +141,8 @@ if __name__ == '__main__':
     print(json.dumps(run(), sort_keys=True))
 ```
 
+将下面的完整代码保存为 `infra/a03-patroni/Dockerfile`；文件已存在时，以本版内容替换该文件。
+
 <!-- checkpoint: infra/a03-patroni/Dockerfile -->
 
 ```dockerfile
@@ -146,6 +150,8 @@ FROM postgres:16@sha256:95206741a5b214807675e14165369d05b93a9cf692223b616d07cca2
 RUN apt-get update && apt-get install -y --no-install-recommends python3-pip && rm -rf /var/lib/apt/lists/*
 RUN pip3 install --break-system-packages 'patroni[etcd3]==4.1.5' 'psycopg[binary]==3.3.6'
 ```
+
+将下面的完整代码保存为 `infra/a03-patroni/compose.yaml`；文件已存在时，以本版内容替换该文件。
 
 <!-- checkpoint: infra/a03-patroni/compose.yaml -->
 
@@ -198,6 +204,8 @@ volumes:
   p2-data:
 ```
 
+将下面的完整代码保存为 `infra/a03-patroni/patroni.yml`；文件已存在时，以本版内容替换该文件。
+
 <!-- checkpoint: infra/a03-patroni/patroni.yml -->
 
 ```yaml
@@ -232,6 +240,8 @@ tags:
   nosync: false
 ```
 
+将下面的完整代码保存为 `infra/a03-patroni/lab.sh`；文件已存在时，以本版内容替换该文件。
+
 <!-- checkpoint: infra/a03-patroni/lab.sh -->
 
 ```bash
@@ -261,6 +271,8 @@ esac
 
 必须观察 old_process_alive=true、old_write_rejected=true、acknowledged_lost=0、正的 rto_seconds/cutback_seconds，并检查客户端尝试次数。机器负载与 lease/重试间隔会影响具体时长，不要求固定秒数。一次演练不能推算年度可用性。v0 单实例基线与 v1 手动切换仍独立验证；本篇证明成熟组件的自动切换、网络分区拒写及重新加入。
 
+
+将下面的完整代码保存为 `labs/recovery/ha/model.py`；文件已存在时，以本版内容替换该文件。
 
 <!-- checkpoint: labs/recovery/ha/model.py -->
 
@@ -344,6 +356,8 @@ class HACluster:
             replica.role = "standby"
             self.events.append({"at": self.now, "kind": "rejoin", "node": node, "generation": self.generation})
 ```
+
+将下面的完整代码保存为 `labs/recovery/ha/experiment.py`；文件已存在时，以本版内容替换该文件。
 
 <!-- checkpoint: labs/recovery/ha/experiment.py -->
 

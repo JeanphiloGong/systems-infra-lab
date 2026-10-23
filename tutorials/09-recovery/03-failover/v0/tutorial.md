@@ -6,7 +6,9 @@ RTO 的实测起点应是故障注入，终点是客户端再次成功提交；R
 
 下一版由人决定提升副本，解决可写服务恢复，但还需要交代旧主隔离和客户端目标。
 
-模型重放：`uv run python tests/recovery/ha/replay_a03.py`。
+模型重放：[参考分支检查](../../../../docs/reference-checks.md)。
+
+将下面的完整代码保存为 `model.py`；文件已存在时，以本版内容替换该文件。
 
 <!-- checkpoint: model.py -->
 ```python
@@ -90,6 +92,8 @@ class HACluster:
             self.events.append({"at": self.now, "kind": "rejoin", "node": node, "generation": self.generation})
 ```
 
+将下面的完整代码保存为 `experiment.py`；文件已存在时，以本版内容替换该文件。
+
 <!-- checkpoint: experiment.py -->
 ```python
 import json
@@ -120,3 +124,13 @@ print(json.dumps(result, sort_keys=True))
 
 运行：`python experiment.py 0`。RTO/RPO 是本次轨迹的观测值，不是年度可用性承诺；真实 PostgreSQL promotion 需要独立容器实验。
 
+<details>
+<summary>可选：参考分支验证</summary>
+
+以下命令只在 [reference 的独立工作区](../../../../docs/reference-checks.md) 执行，依赖其中的测试或重放脚本；不属于 main 当前版本的必做步骤。
+
+```bash
+uv run python tests/recovery/ha/replay_a03.py
+```
+
+</details>
