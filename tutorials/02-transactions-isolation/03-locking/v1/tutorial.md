@@ -76,7 +76,17 @@ if __name__ == "__main__":
 
 ```bash
 uv run python -m labs.transactions.locking.locking --optimistic
+```
+
+<details>
+<summary>可选：参考分支验证</summary>
+
+以下命令只在 [reference 的独立工作区](../../../../docs/reference-checks.md) 执行，依赖其中的测试或重放脚本；不属于 main 当前版本的必做步骤。
+
+```bash
 uv run python -m pytest tests/transactions/locking/test_t03_locking.py -q
 ```
+
+</details>
 
 --optimistic输出(1,0)，默认仍是(10,10,9)。真实测试还断言quantity=9/version=1。这个已初始化且库存充足的例子里0来自旧版本；一般情况下0还可能表示缺失记录或库存不足。初始化后临时将quantity改成0，乐观模式得到(0,0)，验证无库存不会扣减，然后删除临时更新。下一版改用行锁比较等待成本。

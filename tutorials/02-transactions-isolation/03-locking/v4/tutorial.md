@@ -74,7 +74,17 @@ if __name__ == "__main__":
 
 ```bash
 uv run python -m labs.transactions.locking.escalation
+```
+
+<details>
+<summary>可选：参考分支验证</summary>
+
+以下命令只在 [reference 的独立工作区](../../../../docs/reference-checks.md) 执行，依赖其中的测试或重放脚本；不属于 main 当前版本的必做步骤。
+
+```bash
 uv run python -m pytest tests/transactions/locking/test_t03_escalation.py -q
 ```
 
-输出records_before=3 records_after=1 unrelated_row_blocked=True。测试同时检查升级失败不丢原锁、拥有者可重入、释放恢复访问和空集合边界。冻结T03，后续T04研究完整可串行化与事务重试。
+</details>
+
+输出records_before=3 records_after=1 unrelated_row_blocked=True。参考分支的历史测试同时检查升级失败不丢原锁、拥有者可重入、释放恢复访问和空集合边界。冻结T03，后续T04研究完整可串行化与事务重试。

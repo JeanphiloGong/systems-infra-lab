@@ -99,7 +99,17 @@ if __name__ == "__main__":
 
 ```bash
 uv run python -m labs.transactions.locking.deadlock
+```
+
+<details>
+<summary>可选：参考分支验证</summary>
+
+以下命令只在 [reference 的独立工作区](../../../../docs/reference-checks.md) 执行，依赖其中的测试或重放脚本；不属于 main 当前版本的必做步骤。
+
+```bash
 uv run python -m pytest tests/transactions/locking/test_t03_deadlock.py -q
 ```
+
+</details>
 
 输出victims and retried quantities: (1,8,8)，ordered quantities: (8,8)（Python显示逗号后空格）。下一版离开真实库，专门观察锁记录合并的代价。

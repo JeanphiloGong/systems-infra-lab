@@ -99,7 +99,17 @@ if __name__ == "__main__":
 ```bash
 uv run python -m labs.transactions.mvcc.snapshots --early-read
 uv run python -m labs.transactions.mvcc.snapshots
+```
+
+<details>
+<summary>可选：参考分支验证</summary>
+
+以下命令只在 [reference 的独立工作区](../../../../docs/reference-checks.md) 执行，依赖其中的测试或重放脚本；不属于 main 当前版本的必做步骤。
+
+```bash
 uv run python -m pytest tests/transactions/mvcc/test_t02_snapshots.py -q
 ```
+
+</details>
 
 输出分别为 `(True, True, False)` 和 `(False, False, False)`。删除临时 check_t02.py，保留模块入口。现在冻结这个观察；下一版用一个明确受限的版本列表模型解释为什么旧快照仍能得到旧值。

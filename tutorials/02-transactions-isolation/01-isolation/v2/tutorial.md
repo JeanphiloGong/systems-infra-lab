@@ -6,7 +6,7 @@
 
 ## 1. 把提交放在两次查询中间
 
-新增下面的 checkpoint 函数到 `observations.py`，并在顶部导入 `from labs.transactions.isolation.transfer import transfer`。保留 v1 代码：
+打开 `labs/transactions/isolation/observations.py`，把下面的完整函数放在 `dirty_read` 之后、`main` 之前；在文件顶部的 import 区增加 `from labs.transactions.isolation.transfer import transfer`。保留 v1 的其他代码：
 
 ```python
 def read_skew(writer: psycopg.Connection, reader: psycopg.Connection, level: str) -> tuple[int, int, int]:
@@ -107,9 +107,36 @@ if __name__ == "__main__":
 ```bash
 uv run python -m labs.transactions.isolation.observations --scenario skew --level 'READ COMMITTED'
 uv run python -m labs.transactions.isolation.observations --scenario skew --level 'REPEATABLE READ'
-uv run python -m pytest tests/transactions/isolation/test_t01_observations.py -k v2 -q
 ```
 
 核对两次分别为 `(100, 130, 200)`、`(100, 100, 200)`。缺失账户不是本观察函数的支持输入，它只接受本模块创建的两账户实验状态；业务输入验证仍由 transfer 负责。
+
+## 4. 在已有测试中追加读取偏斜检查
+
+打开 `tests/transactions/isolation/test_t01_observations.py`，把原来的函数导入行替换为：
+
+```python
+from labs.transactions.isolation.observations import dirty_read, read_skew
+```
+
+保留所有已有内容，在文件末尾追加下面完整测试函数：
+
+```python
+@pytest.mark.parametrize("level, expected", [
+    ("READ COMMITTED", (100, 130, 200)),
+    ("REPEATABLE READ", (100, 100, 200)),
+])
+def test_v2_read_skew(connections, level, expected):
+    writer, reader = connections
+    assert read_skew(writer, reader, level) == expected
+```
+
+运行刚追加的测试：
+
+```bash
+uv run python -m pytest tests/transactions/isolation/test_t01_observations.py -k v2 -q
+```
+
+预期 `2 passed, 3 deselected`。其中 RC 的前两个值相加为 230，第三个值仍为 200；函数没有返回单独的 230。
 
 冻结 v2：现在能区分脏读与读取偏斜，理解语句快照和事务快照。下一版不改变已有行，而插入一个匹配范围查询的新账户，观察结果集合是否变化。

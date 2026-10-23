@@ -127,8 +127,18 @@ if __name__ == "__main__":
 
 ```bash
 uv run python -m labs.transactions.mvcc.protected
+```
+
+<details>
+<summary>可选：参考分支验证</summary>
+
+以下命令只在 [reference 的独立工作区](../../../../docs/reference-checks.md) 执行，依赖其中的测试或重放脚本；不属于 main 当前版本的必做步骤。
+
+```bash
 uv run python -m pytest tests/transactions/mvcc/test_t02_protected.py -q
 ```
+
+</details>
 
 输出 `(1, False, 1)`，测试确认最终医生1为 false，医生2为 true。与 v2 的 `(2, 2, 0)` 相比，共同 guard 把原来分散的业务依赖变成了写冲突，但也让同一排班组上的修改互相争用。
 

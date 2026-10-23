@@ -1,5 +1,7 @@
 # T02：MVCC 与 Snapshot Isolation
 
+在 `main` 按各版正文逐步创建实验文件，先完成前置版本再运行命令。路径是创建目标；旧测试和 replay 脚本仅供 `reference` 对照。参见 [从零学习约定](../../../docs/learning-workspace.md)。
+
 前置 [T01](../01-isolation/README.md)。通过两个值班医生学习快照、行版本和 Write Skew。
 顺序为 [v0](v0/tutorial.md) → [v1](v1/tutorial.md) → [v2](v2/tutorial.md) → [v3](v3/tutorial.md)。
 

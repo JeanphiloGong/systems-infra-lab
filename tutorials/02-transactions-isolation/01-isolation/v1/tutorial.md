@@ -19,7 +19,7 @@ reader SELECT A
 
 同步 Python 可以逐条发出这些命令：事务在服务器上保持打开，两个事务的生命周期重叠。不需要线程，也不需要等待随机碰撞。普通 SELECT 在这里读取可见版本，不是 SELECT FOR UPDATE。
 
-在 `observations.py` 新增 `dirty_read(writer, reader, level)`，使用两个真实连接。`writer.transaction(force_rollback=True)` 保证正常离开也回滚，让扣款始终是未提交尝试。reader 的事务块必须在第一条查询之前执行 `SET TRANSACTION ISOLATION LEVEL`。
+新建 `labs/transactions/isolation/observations.py`，先定义 `dirty_read(writer, reader, level)`，使用两个真实连接。`writer.transaction(force_rollback=True)` 保证正常离开也回滚，让扣款始终是未提交尝试。reader 的事务块必须在第一条查询之前执行 `SET TRANSACTION ISOLATION LEVEL`。
 
 先在 `observations.py` 保存这个完整函数 checkpoint：
 
@@ -41,7 +41,7 @@ def dirty_read(writer: psycopg.Connection, reader: psycopg.Connection, level: st
     return own, other, after
 ```
 
-将下面完整检查程序保存到仓库根目录的临时 `check_t01.py`，执行 `uv run python check_t01.py`。初始化沿用 v0 的 SQL 文件；finally 只删除本程序创建的 schema，检查后删除这个临时文件。
+将下面完整检查程序保存到仓库根目录的临时 `check_t01.py`，执行 `uv run python check_t01.py`。初始化沿用 v0 的 SQL 文件；finally 只删除本程序创建的 schema，这份程序是临时检查；后续若要复用，重新从本节代码块创建即可。
 
 ```python
 import os
@@ -132,9 +132,61 @@ if __name__ == "__main__":
 ```bash
 uv run python -m labs.transactions.isolation.observations --level 'READ COMMITTED'
 uv run python -m labs.transactions.isolation.observations --level 'READ UNCOMMITTED'
-uv run python -m pytest tests/transactions/isolation/test_t01_observations.py -k v1 -q
 ```
 
-两个命令都应输出 `(70, 100, 100)`。测试同时确认回滚后 B 也还是 100。非法级别应被拒绝，而非执行任意 SQL。
+两个命令都应输出 `(70, 100, 100)`。接下来创建测试文件，把这个观察变成可重复的断言。
+
+## 4. 把两个连接的观察保存为测试
+
+保留 v0 的转账测试。新建 `tests/transactions/isolation/test_t01_observations.py`，完整内容如下。fixture 先初始化，再把同一个 schema 的两个连接交给测试；每个参数化用例有自己的新数据。
+
+<!-- checkpoint: tests/transactions/isolation/test_t01_observations.py -->
+
+```python
+import os
+from pathlib import Path
+from uuid import uuid4
+
+import psycopg
+from psycopg import sql
+import pytest
+
+from labs.transactions.isolation.observations import dirty_read
+
+
+@pytest.fixture
+def connections():
+    dsn = os.environ["SYSTEMS_LAB_DATABASE_URL"]
+    with psycopg.connect(dsn, autocommit=True) as writer, psycopg.connect(dsn, autocommit=True) as reader:
+        schema = "t01_" + uuid4().hex
+        writer.execute(sql.SQL("CREATE SCHEMA {}").format(sql.Identifier(schema)))
+        try:
+            for conn in (writer, reader):
+                conn.execute(sql.SQL("SET search_path TO {}").format(sql.Identifier(schema)))
+                conn.execute("SET statement_timeout = '5s'")
+            writer.execute(Path("labs/transactions/isolation/schema.sql").read_text())
+            yield writer, reader
+        finally:
+            writer.execute(sql.SQL("DROP SCHEMA {} CASCADE").format(sql.Identifier(schema)))
+
+
+@pytest.mark.parametrize("level", ["READ COMMITTED", "READ UNCOMMITTED"])
+def test_v1_dirty_read(connections, level):
+    writer, reader = connections
+    assert dirty_read(writer, reader, level) == (70, 100, 100)
+    assert reader.execute("SELECT balance FROM accounts ORDER BY id").fetchall() == [(100,), (100,)]
+
+
+def test_v1_invalid_level(connections):
+    writer, reader = connections
+    with pytest.raises(ValueError, match="unsupported isolation level"):
+        dirty_read(writer, reader, "INVALID")
+```
+
+```bash
+uv run python -m pytest tests/transactions/isolation/test_t01_observations.py -q
+```
+
+预期 `3 passed`。测试直接检查本版返回的三个值、回滚后的两个余额，以及非法隔离级别被拒绝。后续版本会在这个文件中追加测试，保留本节 fixture 和用例。
 
 本版证明这个调度下没有脏读，不证明任意报表读取都一致。下一版让写事务真正提交，并把提交放在报表两条 SELECT 之间，看两个“已提交值”能否组成错误的总额。

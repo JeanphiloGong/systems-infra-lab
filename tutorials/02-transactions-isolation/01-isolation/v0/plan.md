@@ -1,34 +1,25 @@
 # T01 v0 写作计划
 
-目标：让转账调用者在扣款后异常时仍看到 100/100。模型为两账户、整数金额、两 UPDATE；本版不处理并发或外部支付。来源目标必须存在且不同，金额正整数，扣款余额足够。
+目标：用同一份 schema 和同一故障位置，对比独立提交与共同事务。两账户初始 100/100；成功为 70/130，失败为 100/100。只研究程序异常，不承诺并发、网络结果确认或断电恢复。
 
-## 任务 1：运行直接更新
+## 任务 1：先让 SQL 文件被执行
 
-在 tutorial.md 的起点提供 schema.sql 与 autocommit=True 的两 UPDATE。依赖只有环境；规模 S；checkpoint。验收成功为 70/130。必须解释参数化 SQL 与整数单位；先不引入事务封装。
+正文创建 `labs/transactions/isolation/schema.sql` 与同目录 `demo.py`。后者通过 Path 读取前者，不再维护两份不同表定义。解释 schema、autocommit、参数化 SQL 和最终清理的用途。前置只有环境；完整 checkpoint；验收打印 70/130。规模 S。
 
-## 任务 2：扣款后失败
+## 任务 2：固定部分提交故障
 
-依赖任务 1；规模 S；patch，目标当前脚本。把确定性异常放在两 UPDATE 之间，查询 70/100；错误后不再运行入账。冻结可重复错误，缺口为部分提交。不用 sleep。
+在 demo.py 的扣款后、入账前插入打印余额、断言总额 170 和 raise。保留入账语句但说明它不可达。展示完整 diff，验收打印 70/100 并以非零码退出；清理只删除实验表，不是回滚。依赖任务 1；patch；规模 S。
 
-## 任务 3：事务边界
+## 任务 3：改变共同提交边界
 
-依赖任务 2；规模 M；patch，目标 transfer.py。加入 with conn.transaction()，异常离开触发回滚；校验请求和条件 UPDATE 守住余额。验收正常、零负数、缺失账户、余额不足和故障后的实际表数据。
+完整替换 demo.py：两条更新与同一 raise 放进 transaction 块，把读取放在该块退出后。验收故障回滚为 100/100；再删除 raise 验证成功为 70/130。解释两个 finally 的执行位置，删除中途状态的旧断言。依赖任务 2；checkpoint；规模 S。
 
-## 任务 4：完整检查点
+## 任务 4：整理可重复调用入口
 
-依赖任务 3；规模 M；checkpoint，目标 transfer.py/schema.sql 和教程最后一步。解释入口 schema 创建清理，给出完整代码与命令。重放原故障仍为 100/100；成功为 70/130，错误进程非零。测试连接失败不得误报成功。冻结 v0 后才研究第二连接读取。
+创建 transfer.py，保留 schema.sql。先解释函数参数、余额与 rowcount 检查、空闲 autocommit 前置、故障开关、main 与清理，再给完整文件。运行成功、故障和非法金额三条命令，分别验证余额与退出码。依赖任务 3；checkpoint；规模 M。
 
-所有任务不提交 Git。验证命令 `uv run python -m pytest tests/transactions/isolation/test_t01_transfer.py -q`，还要在独立临时目录重放正文最终代码。独立审查前状态为 draft。需重点检查异常在事务外传播，以及非法目标导致扣款被回滚。
+## 任务 5：创建本版测试并冻结
 
+给出 test_t01_transfer.py 的完整创建步骤，fixture 每个用例建立独立 schema。测试正常和耗尽余额、非法金额与账户、扣款后异常，并检查真实余额。验收 10 passed；在临时目录从正文重放每个步骤，不能用 reference 最终代码替代步骤验证。依赖任务 4；checkpoint；规模 M。
 
-## Tutorial Increment
-
-- **Pressure:** The a transfer and a concurrent balance report scenario makes the current checkpoint insufficient for the v0 requirement.
-- **Naive:** Keep the previous version's simplest behavior and record what it cannot observe or protect.
-- **Break:** 账户 A 和 B 都有 100 个整数单位。用户让 A 转 30 给 B，成功后应该是 70/130；如果程序只完成扣款就失败，两边应该仍为 100/100。我们只保留两个账户和一次程序异常，不讨论支付网关、手续费或并发转账。这个模型已经足以暴露“多条 SQL 是否共同完成”的问题。 先按仓库环境文档启动临时 PostgreSQL，设置 `SYSTEMS_LAB_DATABASE_URL`，执行 `uv sync --locked`。以下命令均从仓库根目录运行。数据库必须是可丢弃的实验实例；程序会创建并清理独立 s
-- **Change:** # T01 v0：转账失败后，钱去了哪里？; implement only the behavior introduced by this version and retain the previous checkpoint contract.
-- **Check:** Extract the complete source fence and run `uv run pytest tests/transactions/isolation -q`; assert the version-specific result from the tutorial instead of checking only that the process exits.
-- **Freeze:** Freeze the source fence, its caller, and the expected assertion together; the replay must run from a fresh temporary directory.
-- **Still-lacks:** This remains a T01 isolation teaching model for a transfer and a concurrent balance report; it does not claim production durability, concurrency, or distributed behavior beyond the stated experiment.
-- **Next:** Continue with v1 of T01 isolation, carrying forward the state and invariant rather than restarting from a disconnected example.
-
+所有验证使用隔离 PostgreSQL。以上是教程编写与复验任务，不在 main 代写实验文件，不自动提交。旧阶段只有参数化函数片段时，不声称它是完整文件；最后的完整入口仅组合前文解释过的逻辑。

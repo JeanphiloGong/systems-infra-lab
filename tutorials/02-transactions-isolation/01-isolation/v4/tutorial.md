@@ -40,7 +40,7 @@ def constraint_trace(conn: psycopg.Connection) -> tuple[int, int]:
     return after_rejection, after_legal_sql
 ```
 
-检查时复用 v1 的完整临时 `check_t01.py` 初始化程序：把 import 改为 `from labs.transactions.isolation.acid import constraint_trace`，把调用改为 `result = constraint_trace(writer)`，断言改为 `assert result == (200, 199)`。其余创建、初始化、清理保持不变，执行 `uv run python check_t01.py`。
+检查时从 [v1 第 1 节](../v1/tutorial.md) 的完整代码块重新创建临时 `check_t01.py`：把 import 改为 `from labs.transactions.isolation.acid import constraint_trace`，把调用改为 `result = constraint_trace(writer)`，断言改为 `assert result == (200, 199)`。其余创建、初始化、清理保持不变，执行 `uv run python check_t01.py`。
 
 异常在事务块外捕获，所以查询可以继续。第一项为 200，证明负余额操作没有生效；第二项为 199，证明合法 SQL 仍可破坏未编码的业务规则。这里刻意执行错误业务动作，不要把它接到转账接口。ACID 的 C 需要应用逻辑与数据库约束共同维护选定的不变量。
 
@@ -106,7 +106,6 @@ if __name__ == "__main__":
 
 ```bash
 uv run python -m labs.transactions.isolation.acid
-uv run python -m pytest tests/transactions/isolation -q
 ```
 
 第一条输出：
@@ -115,6 +114,29 @@ uv run python -m pytest tests/transactions/isolation -q
 constraint, business total: (200, 199)
 after reconnect: [(70,), (130,)]
 ```
+
+## 4. 保存约束检查，再跑完整的 T01 测试
+
+在已有的 `tests/transactions/isolation/test_t01_observations.py` 顶部增加导入：
+
+```python
+from labs.transactions.isolation.acid import constraint_trace
+```
+
+在文件末尾追加下面的测试，它使用 v1 已创建的 `connections` fixture，不需要新的辅助文件：
+
+```python
+def test_v4_constraint_and_business_rule(connections):
+    writer, reader = connections
+    assert constraint_trace(writer) == (200, 199)
+    assert reader.execute("SELECT sum(balance) FROM accounts").fetchone()[0] == 199
+```
+
+```bash
+uv run python -m pytest tests/transactions/isolation -q
+```
+
+按 v0-v4 的创建与追加步骤完成后，预期 `18 passed`：转账测试 10 项、隔离观察测试 7 项、约束测试 1 项。完整测试只覆盖你在本模块实际创建的文件，不需要 reference 分支中的旧测试。
 
 这份证据地图就是 T01 的最终检查点：A 有故障回滚，C 有已编码约束与未编码规则的对照，I 有三个确定性调度，D 只有提交后的重连观察和明确的待验证范围。没有完成的实验不能写成结论。
 

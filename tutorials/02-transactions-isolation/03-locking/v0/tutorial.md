@@ -69,7 +69,17 @@ if __name__ == "__main__":
 
 ```bash
 uv run python -m labs.transactions.locking.locking
+```
+
+<details>
+<summary>可选：参考分支验证</summary>
+
+以下命令只在 [reference 的独立工作区](../../../../docs/reference-checks.md) 执行，依赖其中的测试或重放脚本；不属于 main 当前版本的必做步骤。
+
+```bash
 uv run python -m pytest tests/transactions/locking/test_t03_locking.py -q
 ```
+
+</details>
 
 输出应为(10,10,9)。将函数中b的SELECT临时移到第一次UPDATE之后得到(10,9,8)，然后移回。这个patch只改变事件顺序，说明异常来自先读后覆盖。冻结反例，下一版增加版本条件。

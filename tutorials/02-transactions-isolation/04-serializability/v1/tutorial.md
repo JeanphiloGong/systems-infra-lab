@@ -6,14 +6,24 @@ T02 的 RR 允许两个医生都下班；`SERIALIZABLE` 要求已提交历史等
 
 ```bash
 uv run python -m labs.transactions.serializable.serializable
+```
+
+<details>
+<summary>可选：参考分支验证</summary>
+
+以下命令只在 [reference 的独立工作区](../../../../docs/reference-checks.md) 执行，依赖其中的测试或重放脚本；不属于 main 当前版本的必做步骤。
+
+```bash
 uv run python -m pytest tests/transactions/serializable/test_t04_serializable.py -q
 ```
+
+</details>
 
 测试使用真实 PostgreSQL，预期失败计数为1。可串行化约束事务历史，不自动定义业务规则。
 
 ## Complete checkpoint
 
-This checkpoint's teaching boundary is only the coordinated SERIALIZABLE run: `concurrent_once` and its `leave` helper. The later `retry_once` function is shown in the evolving source only for repository continuity; do not use `--retry` until v2. The v1 acceptance is the one-abort result.
+This checkpoint's teaching boundary is only the coordinated SERIALIZABLE run: `concurrent_once` and its `leave` helper. `retry_once` and `--retry` will be added in v2; they are not part of this checkpoint. The v1 acceptance is the one-abort result.
 
 The following is the complete `labs/transactions/serializable/serializable.py` source for this checkpoint:
 
@@ -74,7 +84,7 @@ if __name__ == "__main__":
     main()
 ```
 
-Schema:
+新建与 `serializable.py` 相邻的 `labs/transactions/serializable/schema.sql`，保存完整初始化 SQL：
 ```sql
 CREATE TABLE doctors (id integer PRIMARY KEY, on_call boolean NOT NULL);
 INSERT INTO doctors VALUES (1, true), (2, true);
@@ -84,5 +94,15 @@ INSERT INTO doctors VALUES (1, true), (2, true);
 uv sync --locked
 export SYSTEMS_LAB_DATABASE_URL='postgresql://systems_lab:systems_lab_local_only@127.0.0.1:55432/systems_lab'
 uv run python -m labs.transactions.serializable.serializable
+```
+
+<details>
+<summary>可选：参考分支验证</summary>
+
+以下命令只在 [reference 的独立工作区](../../../../docs/reference-checks.md) 执行，依赖其中的测试或重放脚本；不属于 main 当前版本的必做步骤。
+
+```bash
 uv run python -m pytest tests/transactions/serializable -q
 ```
+
+</details>

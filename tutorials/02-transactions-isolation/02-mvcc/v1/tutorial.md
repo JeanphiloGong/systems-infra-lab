@@ -60,7 +60,20 @@ if __name__ == "__main__":
 
 ```bash
 uv run python -m labs.transactions.mvcc.model
+```
+
+<details>
+<summary>可选：参考分支验证</summary>
+
+以下命令只在 [reference 的独立工作区](../../../../docs/reference-checks.md) 执行，依赖其中的测试或重放脚本；不属于 main 当前版本的必做步骤。
+
+```bash
 uv run python -m pytest tests/transactions/mvcc/test_t02_model.py -q
+```
+
+</details>
+
+```bash
 uv run python -m labs.transactions.mvcc.snapshots --early-read
 ```
 

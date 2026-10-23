@@ -6,7 +6,7 @@
 
 ## 1. 在两次范围读取之间插入
 
-新增如下完整函数 checkpoint 到 `observations.py`。已有 imports 保留：
+打开 `labs/transactions/isolation/observations.py`，将下面完整函数放在 `read_skew` 之后、`main` 之前。已有 imports 保留：
 
 ```python
 def phantom_read(writer: psycopg.Connection, reader: psycopg.Connection, level: str) -> tuple[int, int, int]:
@@ -121,9 +121,34 @@ if __name__ == "__main__":
 ```bash
 uv run python -m labs.transactions.isolation.observations --scenario phantom --level 'READ COMMITTED'
 uv run python -m labs.transactions.isolation.observations --scenario phantom --level 'REPEATABLE READ'
+```
+
+输出分别是 `(2, 3, 3)`、`(2, 2, 3)`。这两个命令使用真实服务器和显式调用顺序，没有 sleep 或预制隔离结果。
+
+## 4. 追加谓词查询的回归检查
+
+在 `tests/transactions/isolation/test_t01_observations.py` 的函数导入行增加 `phantom_read`：
+
+```python
+from labs.transactions.isolation.observations import dirty_read, read_skew, phantom_read
+```
+
+保留已有用例和 fixture，在文件末尾追加：
+
+```python
+@pytest.mark.parametrize("level, expected", [
+    ("READ COMMITTED", (2, 3, 3)),
+    ("REPEATABLE READ", (2, 2, 3)),
+])
+def test_v3_phantom_read(connections, level, expected):
+    writer, reader = connections
+    assert phantom_read(writer, reader, level) == expected
+```
+
+```bash
 uv run python -m pytest tests/transactions/isolation/test_t01_observations.py -k v3 -q
 ```
 
-输出分别是 `(2, 3, 3)`、`(2, 2, 3)`。测试使用真实服务器和显式调用顺序，没有 sleep 或预制隔离结果。
+预期 `2 passed, 5 deselected`。RR 用例中事务内的第二次计数仍为 2，事务外已变为 3，两项必须同时成立，才能区分“固定快照”与“插入根本没有完成”。
 
 现在冻结 v3：能观察单行可见性、跨语句混合快照和谓词集合变化。下一版把这些证据与 ACID 对齐，尤其明确我们还没有证明什么。

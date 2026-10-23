@@ -96,8 +96,18 @@ if __name__ == "__main__":
 
 ```bash
 uv run python -m labs.transactions.mvcc.write_skew
+```
+
+<details>
+<summary>可选：参考分支验证</summary>
+
+以下命令只在 [reference 的独立工作区](../../../../docs/reference-checks.md) 执行，依赖其中的测试或重放脚本；不属于 main 当前版本的必做步骤。
+
+```bash
 uv run python -m pytest tests/transactions/mvcc/test_t02_write_skew.py -q
 ```
+
+</details>
 
 预期 `(2, 2, 0)`，测试还直接读取两行都为 false。只检查函数返回是不够的，数据库最终内容才是违反约束的证据。
 

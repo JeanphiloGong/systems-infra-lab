@@ -95,7 +95,17 @@ if __name__ == "__main__":
 
 ```bash
 uv run python -m labs.transactions.locking.row_lock
+```
+
+<details>
+<summary>可选：参考分支验证</summary>
+
+以下命令只在 [reference 的独立工作区](../../../../docs/reference-checks.md) 执行，依赖其中的测试或重放脚本；不属于 main 当前版本的必做步骤。
+
+```bash
 uv run python -m pytest tests/transactions/locking/test_t03_row_lock.py -q
 ```
+
+</details>
 
 数量应为8，wait_seconds和hold_seconds是本次测量，不断言固定数值。测试必须真实观察锁等待。下一版引入第二行，使等待能形成环。
