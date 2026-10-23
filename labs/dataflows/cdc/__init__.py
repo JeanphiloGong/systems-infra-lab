@@ -1,1 +1,0 @@
-"""PostgreSQL CDC checkpoints."""

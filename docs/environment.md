@@ -39,11 +39,15 @@ D03 使用独立实例开启 prepared transactions。先按
 export D03_DATABASE_URL='postgresql://d03:d03_local_only@127.0.0.1:55434/d03'
 ```
 
-准备这三个端点后，运行已实现的实验测试：
+`main` 初始不包含实验实现或测试。[T01 v0](../tutorials/02-transactions-isolation/01-isolation/v0/tutorial.md) 第 5 步会给出完整测试文件；先创建它，再运行：
 
 ```bash
-uv run --locked pytest
+uv run --locked pytest tests/transactions/isolation/test_t01_transfer.py
 ```
+
+预期 `10 passed`。其他专题先执行当前页的直接实验与断言；折叠区中的旧测试命令只属于 [参考分支检查](reference-checks.md)，无需在当前学习工作区提前复制它们。详见 [从零学习约定](learning-workspace.md)。
+
+其他专题可能需要额外的专用服务；上述三个端点不足以运行所有专题。R04 的 `infra/r04.compose.yaml` 挂载 `labs/replication/postgres/` 下的 `init.sql`、`replication.sh` 和 `standby.sh`，必须先按 R04 教程创建这些文件，才能启动该环境。
 
 测试通过只证明当前实现及所运行的检查，不代表规划中的所有教程完成。
 每版教程的旧代码重放和独立审核结果另见 [进度记录](progress.md)。
