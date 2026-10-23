@@ -1,6 +1,18 @@
 # A01 v4：成功恢复耗时、失败耗时和数据损失窗口
 
-本版在专用 PostgreSQL 16.4 上运行，围栏必须与源文件一致。归档文件只在 A01 私有目录中创建，恢复容器和临时目录由测试清理。
+v3 的成功路径依赖连续归档。本版复制同一套备份做两次恢复：一份保留全部 WAL，一份只在私有副本中删除最后一个必要段。前者必须到达目标，后者必须明确失败；分别测量实际经过的时间。
+
+先按[模块入口](../README.md)启动 A01 专用 PostgreSQL 16.4，并安装同主版本客户端。保留 [v3](../v3/tutorial.md) 的文件。
+
+## 1. 先明确恢复的输入与目标
+
+复制 base 与归档后分别执行 recover_at。成功路径检查恢复暂停且精确读到 1:100,2:100；损坏路径检查 PostgreSQL 日志指出目标尚未到达。用 monotonic 包围实际恢复调用，配置 timeout=5 只是等待上限，不是测得耗时。
+
+## 2. 沿用前版边界，增加当前需要的操作
+
+common.py 沿用 v3。新变化都在 experiment：创建 success-base 与 broken-archive 两份副本，只删除后者的一段，并分别计时。原始归档不被破坏，可以继续用于其他实验。
+
+完整替换 `labs/recovery/backup/common.py`：
 
 <!-- checkpoint: labs/recovery/backup/common.py -->
 
@@ -10,7 +22,6 @@ from __future__ import annotations
 import os
 from pathlib import Path
 import subprocess
-import time
 import uuid
 from contextlib import contextmanager
 
@@ -18,11 +29,11 @@ import psycopg
 from psycopg.conninfo import make_conninfo, conninfo_to_dict
 from psycopg import sql
 
-
 DSN = os.getenv("A01_DATABASE_URL", "postgresql://a01:a01_local_only@127.0.0.1:55452/a01")
+
+import time
+
 ARCHIVE = Path("/tmp/a01-wal-archive")
-ARCHIVE.mkdir(parents=True, exist_ok=True)
-ARCHIVE.chmod(0o777)
 
 
 def connect() -> psycopg.Connection:
@@ -66,19 +77,6 @@ def create_base_backup(base: Path) -> None:
     command("pg_basebackup", "--dbname=" + DSN, "-D", str(base), "-Fp", "-Xs", "--checkpoint=fast")
 
 
-def wait_archive(conn: psycopg.Connection) -> tuple[Path, str]:
-    cluster = conn.execute("SELECT system_identifier::text FROM pg_control_system()").fetchone()[0]
-    segment = conn.execute("SELECT pg_walfile_name(pg_current_wal_insert_lsn())").fetchone()[0]
-    conn.execute("SELECT pg_switch_wal()")
-    archive = ARCHIVE / cluster
-    deadline = time.monotonic() + 30
-    while time.monotonic() < deadline:
-        if (archive / segment).exists() and (archive / segment).stat().st_size == 16777216:
-            return archive, segment
-        time.sleep(0.1)
-    raise RuntimeError(f"WAL not archived: {segment}")
-
-
 def wal_segment_names(start_segment: str, end_segment: str) -> list[str]:
     prefix = start_segment[:8]
     start_number = int(start_segment[8:], 16)
@@ -109,7 +107,7 @@ def recover_at(base: Path, target: str, archive: Path, *, timeout: float = 12) -
     (base / "recovery.signal").write_text("")
     (base / "postgresql.auto.conf").write_text(f"restore_command = 'cp /archive/%f %p'\nrecovery_target_time = '{target}'\n")
     name = "a01-recovery-" + uuid.uuid4().hex[:8]
-    started = docker("run", "-d", "--name", name, "--network", "infra_default", "-v", f"{base}:/var/lib/postgresql/data", "-v", f"{archive}:/archive", "postgres:16.4", "postgres", "-D", "/var/lib/postgresql/data", "-c", "hba_file=/archive/recovery_hba.conf", check=False)
+    started = docker("run", "-d", "--name", name, "--network", "none", "-v", f"{base}:/var/lib/postgresql/data", "-v", f"{archive}:/archive", "postgres:16.4", "postgres", "-D", "/var/lib/postgresql/data", "-c", "hba_file=/archive/recovery_hba.conf", check=False)
     if started.returncode != 0:
         return False, started.stderr
     deadline = time.monotonic() + timeout
@@ -128,6 +126,12 @@ def recover_at(base: Path, target: str, archive: Path, *, timeout: float = 12) -
     return False, logs
 ```
 
+## 3. 把备份、恢复与数据检查接起来
+
+成功与失败路径各自报告实际 elapsed_seconds；两次都可能受机器负载影响，不固定秒数。恢复中缺少 id=3 是显式选择旧目标的结果，不等于本次系统意外丢失一条已确认写。这里展示损失窗口，不能由两条样本推出生产 RPO/RTO。
+
+新建本版完整入口：
+
 <!-- checkpoint: labs/recovery/backup/v4.py -->
 
 ```python
@@ -139,7 +143,7 @@ import tempfile
 import time
 import shutil
 
-from common import connect, create_base_backup, recover_at, seed, wait_archive, wait_archived_segments
+from common import connect, create_base_backup, recover_at, seed, wait_archived_segments
 
 
 def experiment() -> dict[str, object]:
@@ -183,7 +187,7 @@ if __name__ == "__main__":
 ```
 
 ```bash
-A01_DATABASE_URL='postgresql://a01:a01_local_only@127.0.0.1:55452/a01' uv run pytest 'tests/recovery/backup/test_a01_replay.py::test_real_postgres_backup_restore[4]' -q
+uv run python labs/recovery/backup/v4.py
 ```
 
-结果必须来自实际 WAL 文件、恢复查询和 monotonic 计时，不能用配置 timeout 冒充观测。
+成功与失败路径各自报告实际 elapsed_seconds；两次都可能受机器负载影响，不固定秒数。恢复中缺少 id=3 是显式选择旧目标的结果，不等于本次系统意外丢失一条已确认写。这里展示损失窗口，不能由两条样本推出生产 RPO/RTO。

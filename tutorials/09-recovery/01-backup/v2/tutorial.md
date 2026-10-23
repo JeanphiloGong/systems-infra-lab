@@ -1,6 +1,18 @@
 # A01 v2：物理 base backup、WAL 区间连续性和逻辑损坏反例
 
-本版在专用 PostgreSQL 16.4 上运行，围栏必须与源文件一致。归档文件只在 A01 私有目录中创建，恢复容器和临时目录由测试清理。
+v1 的逻辑备份只能恢复其快照。要研究之后的时间点，下一步需要整个集群的物理基线与连续 WAL。本版先实际破坏一份逻辑 dump，证明命令失败不能当恢复成功，再生成 base backup 并核查已知 LSN 区间的归档文件。
+
+先按[模块入口](../README.md)启动 A01 专用 PostgreSQL 16.4，并安装同主版本客户端。保留 [v1](../v1/tutorial.md) 的文件。
+
+## 1. 先明确恢复的输入与目标
+
+截断 dump 后使用 pg_restore --exit-on-error --single-transaction 恢复到独立数据库；断言失败且 accounts 不存在，说明失败恢复没有被接纳，也没有污染源表。随后 pg_basebackup -Fp -Xs 复制物理数据目录并带上备份期间必要 WAL；它不是 pg_dump 的另一种输出格式。
+
+## 2. 沿用前版边界，增加当前需要的操作
+
+保留 v1 的 helper，新增 create_base_backup 与 wait_archived_segments。后者把起止 LSN 转成段名，等待区间内每段实际存在且大小为 16 MiB；区间枚举只支持本实验同 timeline、未跨 segment 编号回绕的小区间，不是通用 WAL 校验工具。文件存在与完整大小仍不等于内容可恢复，v3 会启动真正恢复实例。
+
+完整替换 `labs/recovery/backup/common.py`：
 
 <!-- checkpoint: labs/recovery/backup/common.py -->
 
@@ -10,7 +22,6 @@ from __future__ import annotations
 import os
 from pathlib import Path
 import subprocess
-import time
 import uuid
 from contextlib import contextmanager
 
@@ -18,11 +29,11 @@ import psycopg
 from psycopg.conninfo import make_conninfo, conninfo_to_dict
 from psycopg import sql
 
-
 DSN = os.getenv("A01_DATABASE_URL", "postgresql://a01:a01_local_only@127.0.0.1:55452/a01")
+
+import time
+
 ARCHIVE = Path("/tmp/a01-wal-archive")
-ARCHIVE.mkdir(parents=True, exist_ok=True)
-ARCHIVE.chmod(0o777)
 
 
 def connect() -> psycopg.Connection:
@@ -57,26 +68,9 @@ def dump(path: Path, fmt: str = "custom") -> None:
     command("pg_dump", "--dbname=" + DSN, "--format=" + fmt, "--file=" + str(path), "--table=accounts")
 
 
-def docker(*args: str, check: bool = True) -> subprocess.CompletedProcess[str]:
-    return subprocess.run(("docker", *args), check=check, capture_output=True, text=True)
-
-
 def create_base_backup(base: Path) -> None:
     base.mkdir(parents=True, exist_ok=True)
     command("pg_basebackup", "--dbname=" + DSN, "-D", str(base), "-Fp", "-Xs", "--checkpoint=fast")
-
-
-def wait_archive(conn: psycopg.Connection) -> tuple[Path, str]:
-    cluster = conn.execute("SELECT system_identifier::text FROM pg_control_system()").fetchone()[0]
-    segment = conn.execute("SELECT pg_walfile_name(pg_current_wal_insert_lsn())").fetchone()[0]
-    conn.execute("SELECT pg_switch_wal()")
-    archive = ARCHIVE / cluster
-    deadline = time.monotonic() + 30
-    while time.monotonic() < deadline:
-        if (archive / segment).exists() and (archive / segment).stat().st_size == 16777216:
-            return archive, segment
-        time.sleep(0.1)
-    raise RuntimeError(f"WAL not archived: {segment}")
 
 
 def wal_segment_names(start_segment: str, end_segment: str) -> list[str]:
@@ -101,32 +95,13 @@ def wait_archived_segments(conn: psycopg.Connection, start_lsn: str, end_lsn: st
             return archive, names
         time.sleep(0.1)
     raise RuntimeError(f"WAL interval not archived: {names}")
-
-
-def recover_at(base: Path, target: str, archive: Path, *, timeout: float = 12) -> tuple[bool, str]:
-    (archive / "recovery_hba.conf").write_text("local all all trust\nhost all all all trust\n")
-    docker("run", "--rm", "-v", f"{base}:/x", "postgres:16.4", "chmod", "-R", "a+rwX", "/x")
-    (base / "recovery.signal").write_text("")
-    (base / "postgresql.auto.conf").write_text(f"restore_command = 'cp /archive/%f %p'\nrecovery_target_time = '{target}'\n")
-    name = "a01-recovery-" + uuid.uuid4().hex[:8]
-    started = docker("run", "-d", "--name", name, "--network", "infra_default", "-v", f"{base}:/var/lib/postgresql/data", "-v", f"{archive}:/archive", "postgres:16.4", "postgres", "-D", "/var/lib/postgresql/data", "-c", "hba_file=/archive/recovery_hba.conf", check=False)
-    if started.returncode != 0:
-        return False, started.stderr
-    deadline = time.monotonic() + timeout
-    while time.monotonic() < deadline:
-        result = docker("exec", name, "pg_isready", "-U", "a01", check=False)
-        if result.returncode == 0:
-            result = docker("exec", name, "psql", "-U", "a01", "-d", "a01", "-At", "-c", "SELECT string_agg(id::text || ':' || balance::text, ',' ORDER BY id) FROM accounts WHERE pg_get_wal_replay_pause_state() = 'paused'", check=False)
-            if result.returncode == 0 and result.stdout.strip():
-                docker("rm", "-f", name, check=False)
-                docker("run", "--rm", "-v", f"{base}:/x", "postgres:16.4", "chmod", "-R", "a+rwX", "/x")
-                return True, result.stdout.strip()
-        time.sleep(0.25)
-    logs = docker("logs", name, check=False).stderr
-    docker("rm", "-f", name, check=False)
-    docker("run", "--rm", "-v", f"{base}:/x", "postgres:16.4", "chmod", "-R", "a+rwX", "/x")
-    return False, logs
 ```
+
+## 3. 把备份、恢复与数据检查接起来
+
+损坏 dump 的恢复应失败且目标没有 accounts；PG_VERSION 存在，required_wal_segments 非空且每段 16 MiB。此时仍不能宣称 PITR 成功，也没有校验每段内容；下一版由真实恢复进程解释它们。
+
+新建本版完整入口：
 
 <!-- checkpoint: labs/recovery/backup/v2.py -->
 
@@ -136,8 +111,11 @@ from __future__ import annotations
 import json
 from pathlib import Path
 import tempfile
+import subprocess
 
-from common import command, connect, create_base_backup, dump, seed, wait_archived_segments
+import psycopg
+
+from common import command, connect, create_base_backup, dump, seed, wait_archived_segments, independent_database
 
 
 def experiment() -> dict[str, object]:
@@ -147,14 +125,17 @@ def experiment() -> dict[str, object]:
         dump(backup)
         raw = backup.read_bytes()
         backup.write_bytes(raw[: max(1, len(raw) // 2)])
-        conn.execute("DROP TABLE accounts")
-        failed = False
-        try:
-            command("pg_restore", "--dbname=" + conn.info.dsn, str(backup))
-        except Exception:
-            failed = True
-        assert failed
-        seed(conn)
+        with independent_database("damaged") as target_dsn:
+            try:
+                command("pg_restore", "--exit-on-error", "--single-transaction",
+                        "--dbname=" + target_dsn, str(backup))
+            except subprocess.CalledProcessError:
+                pass
+            else:
+                raise AssertionError("damaged dump accepted")
+            with psycopg.connect(target_dsn) as restored:
+                assert restored.execute("SELECT to_regclass('public.accounts')").fetchone()[0] is None
+        assert conn.execute("SELECT count(*) FROM accounts").fetchone()[0] == 2
         start_lsn = conn.execute("SELECT pg_current_wal_insert_lsn()::text").fetchone()[0]
         conn.execute("INSERT INTO accounts VALUES (3,300)")
         conn.execute("CHECKPOINT")
@@ -175,7 +156,7 @@ if __name__ == "__main__":
 ```
 
 ```bash
-A01_DATABASE_URL='postgresql://a01:a01_local_only@127.0.0.1:55452/a01' uv run pytest 'tests/recovery/backup/test_a01_replay.py::test_real_postgres_backup_restore[2]' -q
+uv run python labs/recovery/backup/v2.py
 ```
 
-结果必须来自实际 WAL 文件、恢复查询和 monotonic 计时，不能用配置 timeout 冒充观测。
+损坏 dump 的恢复应失败且目标没有 accounts；PG_VERSION 存在，required_wal_segments 非空且每段 16 MiB。此时仍不能宣称 PITR 成功，也没有校验每段内容；下一版由真实恢复进程解释它们。

@@ -1,6 +1,18 @@
 # A01 v0：逻辑备份恢复到独立目标，验证约束并保留源库
 
-本版在专用 PostgreSQL 16.4 上运行，围栏必须与源文件一致。归档文件只在 A01 私有目录中创建，恢复容器和临时目录由测试清理。
+你准备修改账户表，想先备份，以便出错后恢复。仅生成 SQL 文件还不算成功：它可能不能导入，或者导入后约束丢失。本版把两条账户记录导出，再恢复到另一个临时数据库，验证数据、主键与 NOT NULL，源库保持原样。
+
+先按[模块入口](../README.md)启动 A01 专用 PostgreSQL 16.4，并安装同主版本客户端。
+
+## 1. 先明确恢复的输入与目标
+
+`pg_dump --format=plain --table=accounts` 读取源库快照，产物是 SQL；`psql --set=ON_ERROR_STOP=1 --file=...` 在独立目标执行这些 SQL。开启 ON_ERROR_STOP 避免中间语句失败却继续到最后。成功退出后仍需查询目标，不能只检查文件存在。
+
+## 2. 准备本版会调用的操作
+
+common.py 只放当前调用需要的操作：connect 连接 A01 源库；seed 建立两条输入；dump/command 调用真实客户端并检查退出码；independent_database 创建随机目标库，在 finally 删除它。后者拥有目标库生命周期，脚本拥有临时 dump 文件。seed 会重建实验源表，因此 DSN 必须指向 A01 专用实例。当前没有 WAL 或物理恢复 helper。
+
+完整替换 `labs/recovery/backup/common.py`：
 
 <!-- checkpoint: labs/recovery/backup/common.py -->
 
@@ -10,7 +22,6 @@ from __future__ import annotations
 import os
 from pathlib import Path
 import subprocess
-import time
 import uuid
 from contextlib import contextmanager
 
@@ -18,11 +29,7 @@ import psycopg
 from psycopg.conninfo import make_conninfo, conninfo_to_dict
 from psycopg import sql
 
-
 DSN = os.getenv("A01_DATABASE_URL", "postgresql://a01:a01_local_only@127.0.0.1:55452/a01")
-ARCHIVE = Path("/tmp/a01-wal-archive")
-ARCHIVE.mkdir(parents=True, exist_ok=True)
-ARCHIVE.chmod(0o777)
 
 
 def connect() -> psycopg.Connection:
@@ -55,78 +62,13 @@ def command(*args: str) -> None:
 
 def dump(path: Path, fmt: str = "custom") -> None:
     command("pg_dump", "--dbname=" + DSN, "--format=" + fmt, "--file=" + str(path), "--table=accounts")
-
-
-def docker(*args: str, check: bool = True) -> subprocess.CompletedProcess[str]:
-    return subprocess.run(("docker", *args), check=check, capture_output=True, text=True)
-
-
-def create_base_backup(base: Path) -> None:
-    base.mkdir(parents=True, exist_ok=True)
-    command("pg_basebackup", "--dbname=" + DSN, "-D", str(base), "-Fp", "-Xs", "--checkpoint=fast")
-
-
-def wait_archive(conn: psycopg.Connection) -> tuple[Path, str]:
-    cluster = conn.execute("SELECT system_identifier::text FROM pg_control_system()").fetchone()[0]
-    segment = conn.execute("SELECT pg_walfile_name(pg_current_wal_insert_lsn())").fetchone()[0]
-    conn.execute("SELECT pg_switch_wal()")
-    archive = ARCHIVE / cluster
-    deadline = time.monotonic() + 30
-    while time.monotonic() < deadline:
-        if (archive / segment).exists() and (archive / segment).stat().st_size == 16777216:
-            return archive, segment
-        time.sleep(0.1)
-    raise RuntimeError(f"WAL not archived: {segment}")
-
-
-def wal_segment_names(start_segment: str, end_segment: str) -> list[str]:
-    prefix = start_segment[:8]
-    start_number = int(start_segment[8:], 16)
-    end_number = int(end_segment[8:], 16)
-    if prefix != end_segment[:8] or end_number < start_number:
-        raise RuntimeError(f"WAL interval crosses timeline or wraps segment numbering: {start_segment}..{end_segment}")
-    return [prefix + f"{number:016X}" for number in range(start_number, end_number + 1)]
-
-
-def wait_archived_segments(conn: psycopg.Connection, start_lsn: str, end_lsn: str) -> tuple[Path, list[str]]:
-    cluster = conn.execute("SELECT system_identifier::text FROM pg_control_system()").fetchone()[0]
-    start_segment = conn.execute("SELECT pg_walfile_name(%s::pg_lsn)", (start_lsn,)).fetchone()[0]
-    end_segment = conn.execute("SELECT pg_walfile_name(%s::pg_lsn)", (end_lsn,)).fetchone()[0]
-    archive = ARCHIVE / cluster
-    names = wal_segment_names(start_segment, end_segment)
-    conn.execute("SELECT pg_switch_wal()")
-    deadline = time.monotonic() + 90
-    while time.monotonic() < deadline:
-        if all((archive / name).exists() and (archive / name).stat().st_size == 16777216 for name in names):
-            return archive, names
-        time.sleep(0.1)
-    raise RuntimeError(f"WAL interval not archived: {names}")
-
-
-def recover_at(base: Path, target: str, archive: Path, *, timeout: float = 12) -> tuple[bool, str]:
-    (archive / "recovery_hba.conf").write_text("local all all trust\nhost all all all trust\n")
-    docker("run", "--rm", "-v", f"{base}:/x", "postgres:16.4", "chmod", "-R", "a+rwX", "/x")
-    (base / "recovery.signal").write_text("")
-    (base / "postgresql.auto.conf").write_text(f"restore_command = 'cp /archive/%f %p'\nrecovery_target_time = '{target}'\n")
-    name = "a01-recovery-" + uuid.uuid4().hex[:8]
-    started = docker("run", "-d", "--name", name, "--network", "infra_default", "-v", f"{base}:/var/lib/postgresql/data", "-v", f"{archive}:/archive", "postgres:16.4", "postgres", "-D", "/var/lib/postgresql/data", "-c", "hba_file=/archive/recovery_hba.conf", check=False)
-    if started.returncode != 0:
-        return False, started.stderr
-    deadline = time.monotonic() + timeout
-    while time.monotonic() < deadline:
-        result = docker("exec", name, "pg_isready", "-U", "a01", check=False)
-        if result.returncode == 0:
-            result = docker("exec", name, "psql", "-U", "a01", "-d", "a01", "-At", "-c", "SELECT string_agg(id::text || ':' || balance::text, ',' ORDER BY id) FROM accounts WHERE pg_get_wal_replay_pause_state() = 'paused'", check=False)
-            if result.returncode == 0 and result.stdout.strip():
-                docker("rm", "-f", name, check=False)
-                docker("run", "--rm", "-v", f"{base}:/x", "postgres:16.4", "chmod", "-R", "a+rwX", "/x")
-                return True, result.stdout.strip()
-        time.sleep(0.25)
-    logs = docker("logs", name, check=False).stderr
-    docker("rm", "-f", name, check=False)
-    docker("run", "--rm", "-v", f"{base}:/x", "postgres:16.4", "chmod", "-R", "a+rwX", "/x")
-    return False, logs
 ```
+
+## 3. 把备份、恢复与数据检查接起来
+
+输出 rows_restored=2、source_preserved=true，列约束为 NO/NO；重复主键与 NULL 写入分别返回 SQLSTATE 23505/23502。异常后调用 rollback，才能继续下一次约束检查。成功后临时目标库和 dump 文件被清理。下一版比较备份后的新提交。
+
+新建本版完整入口：
 
 <!-- checkpoint: labs/recovery/backup/v0.py -->
 
@@ -147,7 +89,7 @@ def experiment() -> dict[str, object]:
         seed(conn)
         backup = Path(directory) / "accounts.sql"
         dump(backup, "plain")
-        command("psql", "--dbname=" + target_dsn, "--file=" + str(backup))
+        command("psql", "--set=ON_ERROR_STOP=1", "--dbname=" + target_dsn, "--file=" + str(backup))
         with connect() as source, psycopg.connect(target_dsn) as restored:
             rows = restored.execute("SELECT * FROM accounts ORDER BY id").fetchall()
             columns = restored.execute("SELECT column_name,is_nullable FROM information_schema.columns WHERE table_name='accounts' ORDER BY ordinal_position").fetchall()
@@ -174,7 +116,7 @@ if __name__ == "__main__":
 ```
 
 ```bash
-A01_DATABASE_URL='postgresql://a01:a01_local_only@127.0.0.1:55452/a01' uv run pytest 'tests/recovery/backup/test_a01_replay.py::test_real_postgres_backup_restore[0]' -q
+uv run python labs/recovery/backup/v0.py
 ```
 
-结果必须来自实际 WAL 文件、恢复查询和 monotonic 计时，不能用配置 timeout 冒充观测。
+输出 rows_restored=2、source_preserved=true，列约束为 NO/NO；重复主键与 NULL 写入分别返回 SQLSTATE 23505/23502。异常后调用 rollback，才能继续下一次约束检查。成功后临时目标库和 dump 文件被清理。下一版比较备份后的新提交。

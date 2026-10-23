@@ -1,6 +1,18 @@
 # A01 v3：目标时间恢复误删前数据并验证 WAL 区间
 
-本版在专用 PostgreSQL 16.4 上运行，围栏必须与源文件一致。归档文件只在 A01 私有目录中创建，恢复容器和临时目录由测试清理。
+v2 有物理基线与 WAL，但还没证明能找回误删记录。现在在 base backup 完成后记录服务器时间，然后删除 id=2、插入 id=3。恢复实例必须停在误删前，读出 1/2；源库同时仍是 1/3。
+
+先按[模块入口](../README.md)启动 A01 专用 PostgreSQL 16.4，并安装同主版本客户端。保留 [v2](../v2/tutorial.md) 的文件。
+
+## 1. 先明确恢复的输入与目标
+
+目标时间必须晚于 base backup 可恢复的起点，又早于 DELETE 提交。用数据库 clock_timestamp 获取目标，1.1 秒间隔只用于把教学事件时间分开，不作为复制完成判据。再用 LSN 区间等待归档实际落地，而不是睡一会就假定成功。
+
+## 2. 沿用前版边界，增加当前需要的操作
+
+在 v2 上新增 docker 和 recover_at。recover_at 写 recovery.signal 与 recovery_target_time，启动只挂载该 base/归档的恢复容器，通过 docker exec 轮询暂停状态与查询结果；不需要加入其他 Compose 网络。完成后删除恢复容器。目标表结果与源库结果必须分别查询，防止误把源库当恢复库。
+
+完整替换 `labs/recovery/backup/common.py`：
 
 <!-- checkpoint: labs/recovery/backup/common.py -->
 
@@ -10,7 +22,6 @@ from __future__ import annotations
 import os
 from pathlib import Path
 import subprocess
-import time
 import uuid
 from contextlib import contextmanager
 
@@ -18,11 +29,11 @@ import psycopg
 from psycopg.conninfo import make_conninfo, conninfo_to_dict
 from psycopg import sql
 
-
 DSN = os.getenv("A01_DATABASE_URL", "postgresql://a01:a01_local_only@127.0.0.1:55452/a01")
+
+import time
+
 ARCHIVE = Path("/tmp/a01-wal-archive")
-ARCHIVE.mkdir(parents=True, exist_ok=True)
-ARCHIVE.chmod(0o777)
 
 
 def connect() -> psycopg.Connection:
@@ -66,19 +77,6 @@ def create_base_backup(base: Path) -> None:
     command("pg_basebackup", "--dbname=" + DSN, "-D", str(base), "-Fp", "-Xs", "--checkpoint=fast")
 
 
-def wait_archive(conn: psycopg.Connection) -> tuple[Path, str]:
-    cluster = conn.execute("SELECT system_identifier::text FROM pg_control_system()").fetchone()[0]
-    segment = conn.execute("SELECT pg_walfile_name(pg_current_wal_insert_lsn())").fetchone()[0]
-    conn.execute("SELECT pg_switch_wal()")
-    archive = ARCHIVE / cluster
-    deadline = time.monotonic() + 30
-    while time.monotonic() < deadline:
-        if (archive / segment).exists() and (archive / segment).stat().st_size == 16777216:
-            return archive, segment
-        time.sleep(0.1)
-    raise RuntimeError(f"WAL not archived: {segment}")
-
-
 def wal_segment_names(start_segment: str, end_segment: str) -> list[str]:
     prefix = start_segment[:8]
     start_number = int(start_segment[8:], 16)
@@ -109,7 +107,7 @@ def recover_at(base: Path, target: str, archive: Path, *, timeout: float = 12) -
     (base / "recovery.signal").write_text("")
     (base / "postgresql.auto.conf").write_text(f"restore_command = 'cp /archive/%f %p'\nrecovery_target_time = '{target}'\n")
     name = "a01-recovery-" + uuid.uuid4().hex[:8]
-    started = docker("run", "-d", "--name", name, "--network", "infra_default", "-v", f"{base}:/var/lib/postgresql/data", "-v", f"{archive}:/archive", "postgres:16.4", "postgres", "-D", "/var/lib/postgresql/data", "-c", "hba_file=/archive/recovery_hba.conf", check=False)
+    started = docker("run", "-d", "--name", name, "--network", "none", "-v", f"{base}:/var/lib/postgresql/data", "-v", f"{archive}:/archive", "postgres:16.4", "postgres", "-D", "/var/lib/postgresql/data", "-c", "hba_file=/archive/recovery_hba.conf", check=False)
     if started.returncode != 0:
         return False, started.stderr
     deadline = time.monotonic() + timeout
@@ -128,6 +126,12 @@ def recover_at(base: Path, target: str, archive: Path, *, timeout: float = 12) -
     return False, logs
 ```
 
+## 3. 把备份、恢复与数据检查接起来
+
+恢复目标输出 1:100,2:100，当前源库为 1:100,3:300，且恢复已暂停在目标处。缺 WAL、权限或数据库启动错误都不能算成功。只测本机专用实例，不测跨主机恢复或应用重新接流量。
+
+新建本版完整入口：
+
 <!-- checkpoint: labs/recovery/backup/v3.py -->
 
 ```python
@@ -138,7 +142,7 @@ from pathlib import Path
 import tempfile
 import time
 
-from common import connect, create_base_backup, recover_at, seed, wait_archive, wait_archived_segments
+from common import connect, create_base_backup, recover_at, seed, wait_archived_segments
 
 
 def experiment() -> dict[str, object]:
@@ -168,7 +172,7 @@ if __name__ == "__main__":
 ```
 
 ```bash
-A01_DATABASE_URL='postgresql://a01:a01_local_only@127.0.0.1:55452/a01' uv run pytest 'tests/recovery/backup/test_a01_replay.py::test_real_postgres_backup_restore[3]' -q
+uv run python labs/recovery/backup/v3.py
 ```
 
-结果必须来自实际 WAL 文件、恢复查询和 monotonic 计时，不能用配置 timeout 冒充观测。
+恢复目标输出 1:100,2:100，当前源库为 1:100,3:300，且恢复已暂停在目标处。缺 WAL、权限或数据库启动错误都不能算成功。只测本机专用实例，不测跨主机恢复或应用重新接流量。

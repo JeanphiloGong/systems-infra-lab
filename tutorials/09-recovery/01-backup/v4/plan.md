@@ -1,3 +1,9 @@
-# A01 v4 计划
+# A01 v4 实施计划
 
-前版缺口是无法证明任意 recovery target 已到达。Pressure：缺失 WAL 必须阻止假成功。Naive：在目标前停止也返回可用。Break：删除 archive segment 并请求更晚 target。Change：target 校验与明确失败。Check：v4 与 replay，断言 `missing_archive_detected=True`、`recovery_failed=True`。Freeze：v4 fence。Still-lacks：远端归档耐久性和真实 RPO。Next：与 failover 结合。
+v3 的成功路径依赖连续归档。本版复制同一套备份做两次恢复：一份保留全部 WAL，一份只在私有副本中删除最后一个必要段。前者必须到达目标，后者必须明确失败；分别测量实际经过的时间。
+
+1. 明确输入和目标：复制 base 与归档后分别执行 recover_at。成功路径检查恢复暂停且精确读到 1:100,2:100；损坏路径检查 PostgreSQL 日志指出目标尚未到达。用 monotonic 包围实际恢复调用，配置 timeout=5 只是等待上限，不是测得耗时。
+2. 实施依赖文件 common.py：common.py 沿用 v3。新变化都在 experiment：创建 success-base 与 broken-archive 两份副本，只删除后者的一段，并分别计时。原始归档不被破坏，可以继续用于其他实验。
+3. 创建 v4.py 串起调用并执行 `uv run python labs/recovery/backup/v4.py`。验收：成功与失败路径各自报告实际 elapsed_seconds；两次都可能受机器负载影响，不固定秒数。恢复中缺少 id=3 是显式选择旧目标的结果，不等于本次系统意外丢失一条已确认写。这里展示损失窗口，不能由两条样本推出生产 RPO/RTO。
+
+任务依次依赖；完整源码见 [正文](tutorial.md)，每版只增加本次实验所需函数。
