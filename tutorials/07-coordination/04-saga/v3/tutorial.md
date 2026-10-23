@@ -6,6 +6,8 @@ v2 在退款异常时直接退出，协调者既没有尝试次数，也没有�
 
 每次调用补偿前先把 `attempts` 加一、状态改成 `compensating` 并提交。这样重开同一个数据库文件后能继续使用累计次数；它数的是准备发出的尝试，进程也可能在提交次数后、调用前退出。只捕获 `TimeoutError`：成功写 `compensated`，耗尽上限写 `manual`，其他异常仍传播给调用方。
 
+将下面的完整代码保存为 `labs/coordination/saga/v3.py`；文件已存在时，以本版内容替换该文件。
+
 <!-- checkpoint: labs/coordination/saga/v3.py -->
 
 ```python
@@ -59,8 +61,18 @@ if __name__ == "__main__":
 
 ```bash
 uv run python labs/coordination/saga/v3.py
+```
+
+<details>
+<summary>可选：参考分支验证</summary>
+
+以下命令只在 [reference 的独立工作区](../../../../docs/reference-checks.md) 执行，依赖其中的测试或重放脚本；不属于 main 当前版本的必做步骤。
+
+```bash
 uv run python -m pytest tests/coordination/saga -q
 ```
+
+</details>
 
 脚本故意令两次调用都超时，第一行必须是 `manual`，第二行为 `[(1, 'reserve', 'manual', 2)]`。`test_v3_timeout_retries_then_manual` 核对这个状态；围栏 replay 则确认正文可独立执行。这条轨迹不表示退款已完成，只表示自动处理已经耗尽两次尝试。
 

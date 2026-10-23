@@ -6,6 +6,8 @@
 
 `check_same_thread=False` 允许线程共享连接，但本身不提供互斥，所以仍需锁。`apply` 第一次写入返回 `True`，已存在返回 `False`；`snapshot` 用排序输出便于比较。本版是效果登记表的独立切片，没有把 v3 的补偿循环集成为完整工作流，也没有真正调用库存服务。
 
+将下面的完整代码保存为 `labs/coordination/saga/v4.py`；文件已存在时，以本版内容替换该文件。
+
 <!-- checkpoint: labs/coordination/saga/v4.py -->
 
 ```python
@@ -36,21 +38,44 @@ class Orders:
 
 
 if __name__ == "__main__":
+    from concurrent.futures import ThreadPoolExecutor
+    from threading import Barrier
+
     orders = Orders(":memory:")
-    assert orders.apply("order-a", "reserve")
-    assert not orders.apply("order-a", "reserve")
-    assert orders.apply("order-b", "reserve")
-    print(orders.snapshot())
+    start = Barrier(8)
+
+    def attempt(order: str) -> bool:
+        start.wait(timeout=5)
+        return orders.apply(order, "reserve")
+
+    try:
+        with ThreadPoolExecutor(max_workers=8) as pool:
+            results = list(pool.map(attempt, ["order-a", "order-b"] * 4))
+        assert sum(results) == 2
+        assert orders.snapshot() == [("order-a", "reserve", "done"), ("order-b", "reserve", "done")]
+        print({"attempts": len(results), "accepted": sum(results), "rows": orders.snapshot()})
+    finally:
+        orders.db.close()
 ```
 
 ## 运行
 
 ```bash
 uv run python labs/coordination/saga/v4.py
+```
+
+<details>
+<summary>可选：参考分支验证</summary>
+
+以下命令只在 [reference 的独立工作区](../../../../docs/reference-checks.md) 执行，依赖其中的测试或重放脚本；不属于 main 当前版本的必做步骤。
+
+```bash
 uv run python -m pytest tests/coordination/saga -q
 ```
 
-脚本顺序调用应得到 `[('order-a', 'reserve', 'done'), ('order-b', 'reserve', 'done')]`。真正的并发检查在 `test_v4_concurrent_orders_are_key_isolated`：两个订单各提交四次请求，八次结果中恰好两个 `True`，最终每单只有一条记录。正文 replay 另行检查源码匹配和独立运行。
+</details>
+
+直接入口用 `Barrier(8)` 把八个线程安排到同一个调用起点，两个订单各提交四次。预期 `attempts=8`、`accepted=2`，最终每单一条记录；具体哪两个线程胜出不固定。线程池结束后再查询，避免把读者检查也混入并发写入。这个检查覆盖同一 `Orders` 实例中的竞争，不代表跨进程或跨数据库隔离。
 
 锁只覆盖共享这个 `Orders` 实例的线程；不同进程或不同连接没有共享它。登记成功也不等于外部业务效果与登记原子提交，不能在返回后直接宣称库存只扣一次。本章冻结的是订单效果键隔离，库存容量约束、跨服务隔离和崩溃窗口仍需真实业务契约解决。
 

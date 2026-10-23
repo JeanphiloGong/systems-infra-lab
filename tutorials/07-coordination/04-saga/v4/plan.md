@@ -1,11 +1,9 @@
-# D04 v4: concurrent orders and idempotent effects
+# D04 v4：同时处理重复订单效果键
 
-Scenario: two orders execute concurrently, and the same reserve request for `order-a` is delivered twice.
+这是按订单隔离的效果登记切片，接续 v3 对 Saga 隔离不足的讨论，不声称已整合完整补偿工作流。
 
-Pressure/change: key effects by order and operation, then reject duplicate application while allowing `order-b` independently.
+1. Orders 使用 (order_id,name) 主键；同一个实例的查询/插入/commit 由 Lock 保护。
+2. 八线程用 Barrier(8) 同时起步，两个订单各调用四次 reserve；汇总返回值恰好两次 True，数据库每单一条 done。
+3. 执行 `uv run python labs/coordination/saga/v4.py`，线程池退出后再 snapshot 并关闭连接。检查只证明同实例多线程竞争，不能推出跨进程或真实库存只扣一次。
 
-Checkpoint: `orders.apply('order-a','reserve')` is true once and false on duplicate; `order-b` is true; snapshot shows isolated order state.
-
-Limit: local in-memory idempotency and no distributed transaction coordinator. Later coordination topics address durable deduplication and cross-service consistency.
-
-Replay: `uv run pytest tests/coordination/saga/test_replay_d04.py -q`.
+文件与断言见 [正文](tutorial.md)。

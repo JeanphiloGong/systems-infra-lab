@@ -6,6 +6,8 @@
 
 `create_order` 按顺序执行三个动作。让 `ship` 在插入集合前抛错，观察 Python 异常只中断后续执行，不会撤销前两个集合的修改。入口捕获异常是为了能检查失败后的状态，不代表订单已经成功。
 
+将下面的完整代码保存为 `labs/coordination/saga/v0.py`；文件已存在时，以本版内容替换该文件。
+
 <!-- checkpoint: labs/coordination/saga/v0.py -->
 
 ```python
@@ -50,8 +52,18 @@ if __name__ == "__main__":
 
 ```bash
 uv run python labs/coordination/saga/v0.py
+```
+
+<details>
+<summary>可选：参考分支验证</summary>
+
+以下命令只在 [reference 的独立工作区](../../../../docs/reference-checks.md) 执行，依赖其中的测试或重放脚本；不属于 main 当前版本的必做步骤。
+
+```bash
 uv run python -m pytest tests/coordination/saga -q
 ```
+
+</details>
 
 在仓库根目录使用 `uv sync` 准备环境。脚本应打印 `inventory={'order-1'}`、`charged={'order-1'}`、`shipments=set()`；`test_v0_partial_effect` 验证同样的部分效果，replay 测试另从正文提取围栏到临时目录执行。
 

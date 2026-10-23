@@ -6,6 +6,12 @@ SQLite 记录每个订单步骤状态。进程重启后已完成步骤不重复�
 
 读 `run` 时按三段看：先查询是否已为 `done`；否则提交 `running`，调用外部 `effect`；最后提交 `done`。第一次提交让异常留下可见的未完成记录，第二次提交让后续调用跳过已完成步骤。`status` 只是查询轨迹，不负责自动调度后续步骤。
 
+## 1. 保存已完成步骤
+
+下面保持 `run` 的三个阶段。入口增加两种明确角色：父进程只执行 reserve 并关闭数据库，子进程从同一文件恢复再执行剩余 charge。用新解释器排除内存对象仍存在的干扰；本版不在 effect 与 done 之间注入故障。
+
+将下面的完整代码保存为 `labs/coordination/saga/v1.py`；文件已存在时，以本版内容替换该文件。
+
 <!-- checkpoint: labs/coordination/saga/v1.py -->
 
 ```python
@@ -37,22 +43,54 @@ class Saga:
 
 
 if __name__ == "__main__":
-    saga = Saga(":memory:")
-    calls: list[str] = []
-    saga.run("order-1", "reserve", lambda: calls.append("reserve"))
-    saga.run("order-1", "charge", lambda: calls.append("charge"))
-    saga.run("order-1", "reserve", lambda: calls.append("duplicate"))
-    print(calls, saga.status("order-1"))
+    import json
+    from pathlib import Path
+    import subprocess
+    import sys
+    from tempfile import TemporaryDirectory
+
+    if len(sys.argv) == 2:
+        saga = Saga(sys.argv[1])
+        try:
+            calls: list[str] = []
+            saga.run("order-1", "reserve", lambda: calls.append("duplicate"))
+            saga.run("order-1", "charge", lambda: calls.append("charge"))
+            assert calls == ["charge"]
+            assert saga.status("order-1") == [("reserve", "done"), ("charge", "done")]
+            print(json.dumps({"resumed_calls": calls, "status": saga.status("order-1")}))
+        finally:
+            saga.db.close()
+    else:
+        with TemporaryDirectory() as folder:
+            database = str(Path(folder) / "saga.sqlite")
+            saga = Saga(database)
+            try:
+                calls: list[str] = []
+                saga.run("order-1", "reserve", lambda: calls.append("reserve"))
+                assert calls == ["reserve"]
+            finally:
+                saga.db.close()
+            subprocess.run([sys.executable, __file__, database], check=True, timeout=10)
 ```
 
 ## 运行
 
 ```bash
 uv run python labs/coordination/saga/v1.py
+```
+
+<details>
+<summary>可选：参考分支验证</summary>
+
+以下命令只在 [reference 的独立工作区](../../../../docs/reference-checks.md) 执行，依赖其中的测试或重放脚本；不属于 main 当前版本的必做步骤。
+
+```bash
 uv run python -m pytest tests/coordination/saga -q
 ```
 
-脚本输出应为 `['reserve', 'charge'] [('reserve', 'done'), ('charge', 'done')]`，不能出现 `duplicate`。脚本使用 `:memory:`，只演示同一次运行内的跳过；`test_v1_restart_does_not_repeat_done_step` 使用磁盘文件，关闭连接后重开，再确认 reserve 只发生一次。replay 测试检查正文围栏与源码一致并独立执行。
+</details>
+
+直接运行会先在文件数据库完成 reserve、关闭连接，再启动一个全新 Python 进程。子进程重新调用 reserve 和 charge，但只允许 `resumed_calls=["charge"]`，两条状态均为 done。若删掉 done 的读取或换成 `:memory:`，子进程断言会失败。临时目录在子进程结束后清理。
 
 必须区分“done 后重启”和“effect 成功、done 提交前崩溃”：后一种会留下 `running`，重试仍可能重复效果。外部服务需要自己的幂等键，本版不保证 exactly-once。它也没有修复配送失败留下的库存和扣款，下一版为这些已完成效果加入补偿。
 
