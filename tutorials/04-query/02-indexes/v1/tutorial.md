@@ -14,6 +14,8 @@ uv sync --locked
 
 The checkpoint creates a unique q02_ schema, inserts real orders, gathers statistics, executes real queries and EXPLAIN (ANALYZE, BUFFERS, FORMAT JSON), and drops only its own schema in finally. Save the complete checkpoint at the named path. This checkpoint includes only the setup and experiment for this lesson. psycopg is the only external dependency.
 
+将下面的完整代码保存为 `postgres.py`；文件已存在时，以本版内容替换该文件。
+
 <!-- checkpoint: postgres.py -->
 
 ```python
@@ -92,10 +94,17 @@ The selective result must equal the result captured before index creation. Both 
 
 The output includes complete plans plus a compact metric projection. Root buffer counts are inclusive of child activity: do not sum them again across the tree. Shared hits are PostgreSQL buffer-cache accesses; shared reads are blocks fetched into that cache, potentially served by the OS cache, not necessarily physical device reads. Execution Time is a local wall-clock sample, not an index performance guarantee. All planner choices are measured on this dataset with parallel query disabled for readable plans; other server settings can affect outcomes.
 
-Strictly replay this printed checkpoint in a temporary directory:
+Optional reference validation (uses the reference checkout and its tutorial text):
+
+<details>
+<summary>可选：参考分支验证</summary>
+
+以下命令只在 [reference 的独立工作区](../../../../docs/reference-checks.md) 执行，依赖其中的测试或重放脚本；不属于 main 当前版本的必做步骤。
 
 ```bash
 uv run python tests/query/indexes/replay_q02.py --version 1
 ```
+
+</details>
 
 Replay requires the DSN and fails explicitly if it is missing. It extracts the code above, not current worktree source. The old Python Table example is explanatory only and is not evidence for PostgreSQL behavior.

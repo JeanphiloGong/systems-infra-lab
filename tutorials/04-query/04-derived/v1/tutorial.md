@@ -18,6 +18,8 @@ uv sync --locked
 
 common.py 负责隔离数据和清理；实验入口使用其提供的真实连接。
 
+将下面的完整代码保存为 `labs/query/derived/common.py`；文件已存在时，以本版内容替换该文件。
+
 <!-- checkpoint: labs/query/derived/common.py -->
 
 ```python
@@ -60,6 +62,8 @@ def summary(document):
             "shared_hits": node.get("Shared Hit Blocks", 0), "shared_reads": node.get("Shared Read Blocks", 0)}
 ```
 
+将下面的完整代码保存为 `labs/query/derived/v1.py`；文件已存在时，以本版内容替换该文件。
+
 <!-- checkpoint: labs/query/derived/v1.py -->
 
 ```python
@@ -92,8 +96,18 @@ if __name__ == "__main__":
 
 ```bash
 uv run python -m labs.query.derived.v1
+```
+
+<details>
+<summary>可选：参考分支验证</summary>
+
+以下命令只在 [reference 的独立工作区](../../../../docs/reference-checks.md) 执行，依赖其中的测试或重放脚本；不属于 main 当前版本的必做步骤。
+
+```bash
 uv run python tests/query/derived/replay_q04.py --version 1
 ```
+
+</details>
 
 ## 验证与边界
 
