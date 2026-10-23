@@ -6,6 +6,8 @@ PostgreSQL logical slot 使用 test_decoding 捕获已提交 INSERT/UPDATE/DELET
 
 BEGIN、数据行与 COMMIT 都保留在结果中，事务边界和数据行可以共享 LSN，所以整个流只要求位置不倒退；本例三个数据变更的位置互不相同。比较 LSN 时按 PostgreSQL `pg_lsn` 或高低两段十六进制数值比较，不能按字符串排序。这个结构化事件只解析操作类型，仍保留原始文本；生产连接器需要正式的消息格式和来源标识。
 
+将下面的完整代码保存为 `labs/dataflows/cdc/common.py`；文件已存在时，以本版内容替换该文件。
+
 <!-- checkpoint: labs/dataflows/cdc/common.py -->
 
 ```python
@@ -72,6 +74,8 @@ def snapshot_cut(conn: psycopg.Connection, slot: str) -> tuple[list[tuple[int, s
     return rows, cursor
 ```
 
+将下面的完整代码保存为 `labs/dataflows/cdc/v1.py`；文件已存在时，以本版内容替换该文件。
+
 <!-- checkpoint: labs/dataflows/cdc/v1.py -->
 
 ```python
@@ -108,8 +112,18 @@ if __name__ == "__main__":
 
 ```bash
 uv run python labs/dataflows/cdc/v1.py
+```
+
+<details>
+<summary>可选：参考分支验证</summary>
+
+以下命令只在 [reference 的独立工作区](../../../../docs/reference-checks.md) 执行，依赖其中的测试或重放脚本；不属于 main 当前版本的必做步骤。
+
+```bash
 uv run python -m pytest tests/dataflows/cdc -q
 ```
+
+</details>
 
 正文围栏会被测试提取到空目录，在 E01 专用 PostgreSQL 55450 上执行；R04、共享 PostgreSQL 和内存模拟都不替代这个检查。
 

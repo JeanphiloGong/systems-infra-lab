@@ -14,6 +14,8 @@ Both connections BEGIN and update their account. Each PREPARE releases the clien
 
 This version deliberately covers only the normal coordinator path. There is no durable coordinator decision yet: killing it mid-commit is unsafe. v2 adds that missing obligation. The cleanup helper rolls back leftovers only to dismantle isolated experiments; it is not a production recovery policy.
 
+将下面的完整代码保存为 `labs/coordination/commit/pg.py`；文件已存在时，以本版内容替换该文件。
+
 <!-- checkpoint: labs/coordination/commit/pg.py -->
 
 ```python
@@ -66,6 +68,8 @@ def balances(dsns: list[str]) -> list[int]:
     return result
 ```
 
+将下面的完整代码保存为 `labs/coordination/commit/v1.py`；文件已存在时，以本版内容替换该文件。
+
 <!-- checkpoint: labs/coordination/commit/v1.py -->
 
 ```python
@@ -111,7 +115,17 @@ Run from the repository root:
 uv run python labs/coordination/commit/v1.py
 ```
 
-The replay suite extracts only these complete fences into a fresh temporary directory and verifies the reported behavior. Run `uv run python -m pytest tests/coordination/commit -q` with the disposable database configured.
+The optional reference-branch replay suite extracts only these complete fences into a fresh temporary directory and verifies the reported behavior. Optional: use [参考分支检查](../../../../docs/reference-checks.md) with the disposable database configured.
 
 Before moving on, verify both prepared updates are invisible to readers, both become visible after commit, and no prepared transactions remain. v2 addresses the missing durable decision on coordinator failure.
 
+<details>
+<summary>可选：参考分支验证</summary>
+
+以下命令只在 [reference 的独立工作区](../../../../docs/reference-checks.md) 执行，依赖其中的测试或重放脚本；不属于 main 当前版本的必做步骤。
+
+```bash
+uv run python -m pytest tests/coordination/commit -q
+```
+
+</details>

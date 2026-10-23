@@ -17,7 +17,20 @@
 ```bash
 docker compose -f labs/dataflows/analytics/compose.yaml up -d --wait
 E04_LIVE=1 uv run python -m labs.dataflows.analytics.v1
+```
+
+<details>
+<summary>可选：参考分支验证</summary>
+
+以下命令只在 [reference 的独立工作区](../../../../docs/reference-checks.md) 执行，依赖其中的测试或重放脚本；不属于 main 当前版本的必做步骤。
+
+```bash
 E04_LIVE=1 uv run pytest tests/dataflows/analytics/test_e04_replay.py -q
+```
+
+</details>
+
+```bash
 docker compose -f labs/dataflows/analytics/compose.yaml down --volumes
 ```
 
@@ -32,6 +45,8 @@ v1.py       本版实验与断言
 pg.py         共享 SQL 操作、摄取事务、报表与计划测量
 compose.yaml  两个独立源进程与协调/分析实例
 ```
+
+将下面的完整代码保存为 `labs/dataflows/analytics/v1.py`；文件已存在时，以本版内容替换该文件。
 
 <!-- checkpoint: labs/dataflows/analytics/v1.py -->
 
@@ -71,6 +86,8 @@ def experiment():
 if __name__ == "__main__":
     print(json.dumps(experiment()))
 ```
+
+将下面的完整代码保存为 `labs/dataflows/analytics/pg.py`；文件已存在时，以本版内容替换该文件。
 
 <!-- checkpoint: labs/dataflows/analytics/pg.py -->
 
@@ -209,6 +226,8 @@ def measure(query):
                            scanned=(scan["Actual Rows"] + scan.get("Rows Removed by Filter", 0)) * scan["Actual Loops"]))
     return dict(rows=rows, sources=remote, execution_ms=plan["Execution Time"])
 ```
+
+将下面的完整代码保存为 `labs/dataflows/analytics/compose.yaml`；文件已存在时，以本版内容替换该文件。
 
 <!-- checkpoint: labs/dataflows/analytics/compose.yaml -->
 

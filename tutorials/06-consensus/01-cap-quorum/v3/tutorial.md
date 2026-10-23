@@ -28,6 +28,8 @@ read1 完成早于 read2 开始，强制 read1 排在 read2 前面。因此 writ
 下面增加一个直接修改副本字典的确定性调度。它是消息交错的反例，不是实际网络
 或通用线性一致性检查器；返回值来自两次真实 `quorum_read` 调用。
 
+将下面的完整代码保存为 `labs/consensus/cap_quorum/v3.py`；文件已存在时，以本版内容替换该文件。
+
 <!-- checkpoint: labs/consensus/cap_quorum/v3.py -->
 
 ```python
@@ -93,12 +95,22 @@ if __name__ == "__main__":
 
 ```bash
 uv run python -m labs.consensus.cap_quorum.v3
+```
+
+<details>
+<summary>可选：参考分支验证</summary>
+
+以下命令只在 [reference 的独立工作区](../../../../docs/reference-checks.md) 执行，依赖其中的测试或重放脚本；不属于 main 当前版本的必做步骤。
+
+```bash
 uv run pytest tests/consensus/cap_quorum -q
 ```
 
+</details>
+
 输出的 `intersection` 为 true、`reads` 为 `[[1,"new"],[0,"old"]]`，
 最终 `write_acks` 为 2。`trace` 显示 read1 返回先于 read2 调用，写成功在两次读之后。
-提取测试还会从本章围栏启动独立脚本并核对这些观察，不仅检查退出码。
+提取参考分支的历史测试还会从本章围栏启动独立脚本并核对这些观察，不仅检查退出码。
 
 冻结的是相交性质和一条违反线性一致的历史，不是修复后的复制协议。这里没有
 读写回、提交可见性或领导者日志。单写者原子寄存器可以采用带版本的 quorum

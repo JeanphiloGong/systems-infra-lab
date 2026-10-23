@@ -20,6 +20,8 @@ write 确认的是本地生成并接受一次尝试，不保证它最终赢得 L
 
 下面是完整 checkpoint，保留事件追踪和版本比较两条独立的时间解释。
 
+将下面的完整代码保存为 `labs/replication/multi_leader/v0.py`；文件已存在时，以本版内容替换该文件。
+
 <!-- checkpoint: labs/replication/multi_leader/v0.py -->
 
 ```python
@@ -135,6 +137,8 @@ if __name__ == "__main__":
     assert (local.latency_ms, remote.latency_ms) == (2, 82)
     print({"local_ms": local.latency_ms, "remote_ms": remote.latency_ms, "trace": net.trace})
 ```
+
+将下面的完整代码保存为 `labs/replication/multi_leader/v2.py`；文件已存在时，以本版内容替换该文件。
 
 <!-- checkpoint: labs/replication/multi_leader/v2.py -->
 

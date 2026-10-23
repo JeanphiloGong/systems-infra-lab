@@ -8,6 +8,8 @@
 
 测试用两个真实连接证明锁内写入超时、释放后更新出现在增量中。初始化阶段如果进程失败，必须丢弃未完成目标并重做快照；它不是可恢复的分块快照。`get_changes` 第二个参数是读取上界，不是恢复起点。v3 将讨论快照完成后的增量持久恢复。
 
+将下面的完整代码保存为 `labs/dataflows/cdc/common.py`；文件已存在时，以本版内容替换该文件。
+
 <!-- checkpoint: labs/dataflows/cdc/common.py -->
 
 ```python
@@ -74,6 +76,8 @@ def snapshot_cut(conn: psycopg.Connection, slot: str) -> tuple[list[tuple[int, s
     return rows, cursor
 ```
 
+将下面的完整代码保存为 `labs/dataflows/cdc/v2.py`；文件已存在时，以本版内容替换该文件。
+
 <!-- checkpoint: labs/dataflows/cdc/v2.py -->
 
 ```python
@@ -127,8 +131,18 @@ if __name__ == "__main__":
 
 ```bash
 uv run python labs/dataflows/cdc/v2.py
+```
+
+<details>
+<summary>可选：参考分支验证</summary>
+
+以下命令只在 [reference 的独立工作区](../../../../docs/reference-checks.md) 执行，依赖其中的测试或重放脚本；不属于 main 当前版本的必做步骤。
+
+```bash
 uv run python -m pytest tests/dataflows/cdc -q
 ```
+
+</details>
 
 正文围栏会被测试提取到空目录，在 E01 专用 PostgreSQL 55450 上执行；R04、共享 PostgreSQL 和内存模拟都不替代这个检查。
 

@@ -18,6 +18,8 @@ merge 校验快照形状和值后才修改状态；非法输入不能造成半�
 
 下面是独立的计数器 checkpoint。它承接 v2 暴露的标量损失，不依赖墙钟网络代码，因为合并性质只取决于给定快照的投递序列。
 
+将下面的完整代码保存为 `labs/replication/multi_leader/v3.py`；文件已存在时，以本版内容替换该文件。
+
 <!-- checkpoint: labs/replication/multi_leader/v3.py -->
 
 ```python

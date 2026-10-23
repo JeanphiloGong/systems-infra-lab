@@ -6,6 +6,8 @@ A bounded queue limits occupancy but still permits a caller to submit a burst in
 
 ## One change
 
+将下面的完整代码保存为 `token_bucket.py`；文件已存在时，以本版内容替换该文件。
+
 <!-- checkpoint: token_bucket.py -->
 
 ```python
@@ -48,3 +50,13 @@ if __name__ == "__main__":
 ## Break, check, freeze
 
 The first two calls consume the configured burst; the third is rejected. Advancing the test clock by half a second restores one token at rate two per second. The bucket is thread-safe, but it does not promise fairness between callers; v3 addresses worker selection separately.
+
+## 运行当前检查点
+
+按上面的路径保存完整文件后，从仓库根目录运行：
+
+```bash
+uv run python token_bucket.py
+```
+
+对照本页描述的状态、输出或断言；若没有出现预期结果，先停在当前版检查，不直接进入下一版。

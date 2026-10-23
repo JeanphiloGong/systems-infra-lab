@@ -10,6 +10,8 @@
 
 下面是完整 checkpoint；源码之后的检查既用推进的假钟覆盖操作耗时/超调，也用真实默认 sleep 验证实际等待。
 
+将下面的完整代码保存为 `labs/traffic/resilience/v2.py`；文件已存在时，以本版内容替换该文件。
+
 <!-- checkpoint: labs/traffic/resilience/v2.py -->
 
 ```python
@@ -76,8 +78,18 @@ if __name__ == "__main__":
 
 ```bash
 uv run python labs/traffic/resilience/v2.py
+```
+
+<details>
+<summary>可选：参考分支验证</summary>
+
+以下命令只在 [reference 的独立工作区](../../../../docs/reference-checks.md) 执行，依赖其中的测试或重放脚本；不属于 main 当前版本的必做步骤。
+
+```bash
 uv run python -m pytest tests/traffic/retry -q
 ```
+
+</details>
 
 下面的检查由测试从本文提取到空目录执行，依赖同样来自本文。每个模拟客户端使用固定但不同的种子，比较无 jitter 的同时到达与有 jitter 的分散到达。这是共同起点、独立客户端的确定性模拟，不是吞吐压测。
 
@@ -176,6 +188,8 @@ print({"without_jitter": plain, "seeded_jitter": spread})
 socket 超时是 TimeoutError，直接穿透重试循环，所以停滞请求只调用一次。这里没有重试等待；前面的假钟与真实 sleep 检查已经覆盖退避占用总预算。若业务加入可重试错误，闭包的 expires 仍不重置，下一次操作只能使用真实剩余预算。
 
 finally 通知服务器退出，join 确认线程结束；listener、peer、client 都由上下文关闭。实验没有外部网络请求或后台遗留服务。操作用系统 I/O 超时约束等待；操作系统调度仍可能让实际返回略晚于 50ms，因此这不是硬实时保证，更不是任意 Python 函数的强制终止。不要把宽松 CI 墙钟上限解读成精确截止误差。
+
+将下面的完整代码保存为 `labs/traffic/resilience/io_deadline.py`；文件已存在时，以本版内容替换该文件。
 
 <!-- checkpoint: labs/traffic/resilience/io_deadline.py -->
 

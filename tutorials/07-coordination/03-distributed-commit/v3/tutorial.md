@@ -12,6 +12,8 @@ Count delivered messages in a failure-free run, including command and reply for 
 
 The observed history must be ready/ready, precommit/precommit, committed/committed. The extra round provides information; it does not eliminate the need for assumptions about bounded communication and admissible failures. v4 deliberately violates those assumptions.
 
+将下面的完整代码保存为 `labs/coordination/commit/v3.py`；文件已存在时，以本版内容替换该文件。
+
 <!-- checkpoint: labs/coordination/commit/v3.py -->
 
 ```python
@@ -72,7 +74,17 @@ Run from the repository root:
 uv run python labs/coordination/commit/v3.py
 ```
 
-The replay suite extracts only these complete fences into a fresh temporary directory and verifies the reported behavior. Run `uv run python -m pytest tests/coordination/commit -q` with the disposable database configured.
+The optional reference-branch replay suite extracts only these complete fences into a fresh temporary directory and verifies the reported behavior. Optional: use [参考分支检查](../../../../docs/reference-checks.md) with the disposable database configured.
 
 Before moving on, try commit directly from READY: it must raise ValueError. v4 explores what happens when participants cannot exchange the information needed to terminate.
 
+<details>
+<summary>可选：参考分支验证</summary>
+
+以下命令只在 [reference 的独立工作区](../../../../docs/reference-checks.md) 执行，依赖其中的测试或重放脚本；不属于 main 当前版本的必做步骤。
+
+```bash
+uv run python -m pytest tests/coordination/commit -q
+```
+
+</details>

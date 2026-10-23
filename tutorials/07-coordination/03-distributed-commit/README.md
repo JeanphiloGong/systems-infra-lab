@@ -1,5 +1,7 @@
 # D03: Distributed Transactions, 2PC and 3PC
 
+在 `main` 按各版正文逐步创建实验文件，先完成前置版本再运行命令。路径是创建目标；旧测试和 replay 脚本仅供 `reference` 对照。参见 [从零学习约定](../../../docs/learning-workspace.md)。
+
 Transfer 30 units between accounts in two independent PostgreSQL databases. Both begin at 100. v0 deliberately loses 30; v1 prepares both resources; v2 survives coordinator process failure; v3 models an extra pre-commit phase; v4 breaks a timeout shortcut under a partition.
 
 The invariant is agreement on the final transaction outcome. Atomic commitment is not an instantaneous consistent snapshot across databases. During phase-two delivery readers can observe one participant committed while another remains prepared.
@@ -17,8 +19,18 @@ docker run -d --name systems-d03-postgres \
 docker exec systems-d03-postgres pg_isready -U d03 -d d03
 export D03_DATABASE_URL='postgresql://d03:d03_local_only@127.0.0.1:55434/d03'
 uv sync
+```
+
+<details>
+<summary>可选：参考分支验证</summary>
+
+以下命令只在 [reference 的独立工作区](../../../docs/reference-checks.md) 执行，依赖其中的测试或重放脚本；不属于 main 当前版本的必做步骤。
+
+```bash
 uv run python -m pytest tests/coordination/commit -q
 ```
+
+</details>
 
 Wait until pg_isready reports accepting connections before testing. This server deliberately has no persistent Docker volume. Stop it only after resolving any prepared transactions you still want to inspect. The experiment helper creates uniquely named temporary databases and cleans up their own remaining prepared transactions before dropping them. Its cleanup is teardown, not the coordinator recovery algorithm.
 

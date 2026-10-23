@@ -4,6 +4,8 @@
 
 ## Complete Checkpoint
 
+将下面的完整代码保存为 `labs/dataflows/events/v0.py`；文件已存在时，以本版内容替换该文件。
+
 <!-- checkpoint: labs/dataflows/events/v0.py -->
 
 ```python
@@ -29,8 +31,18 @@ if __name__ == "__main__":
 
 ```bash
 uv run python labs/dataflows/events/v0.py
+```
+
+<details>
+<summary>可选：参考分支验证</summary>
+
+以下命令只在 [reference 的独立工作区](../../../../docs/reference-checks.md) 执行，依赖其中的测试或重放脚本；不属于 main 当前版本的必做步骤。
+
+```bash
 uv run pytest tests/dataflows/events -q
 ```
+
+</details>
 
 The assertions check this version's behavior. The replay test writes this fence into a fresh temporary directory and runs a new interpreter without hidden repository imports.
 

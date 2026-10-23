@@ -6,6 +6,8 @@ If arrivals outpace workers, accepting every request only moves overload into me
 
 ## Naive baseline
 
+将下面的完整代码保存为 `unbounded.py`；文件已存在时，以本版内容替换该文件。
+
 <!-- checkpoint: unbounded.py -->
 
 ```python

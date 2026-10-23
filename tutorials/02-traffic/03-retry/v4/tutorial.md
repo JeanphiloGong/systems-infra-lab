@@ -12,6 +12,8 @@ amplification 中的 calls 来自 unavailable 真正被调用的次数。无预�
 
 断路器抑制持续失败依赖的调用，速率限制控制单位时间到达量，背压约束在途工作；共享重试预算不能替代这些机制。这里为观察乘法效应故意不 sleep；生产调用链应同时有 v2 的退避/截止策略。
 
+将下面的完整代码保存为 `labs/traffic/resilience/budget.py`；文件已存在时，以本版内容替换该文件。
+
 <!-- checkpoint: labs/traffic/resilience/budget.py -->
 
 ```python
@@ -112,8 +114,18 @@ if __name__ == "__main__":
 
 ```bash
 uv run python labs/traffic/resilience/budget.py
+```
+
+<details>
+<summary>可选：参考分支验证</summary>
+
+以下命令只在 [reference 的独立工作区](../../../../docs/reference-checks.md) 执行，依赖其中的测试或重放脚本；不属于 main 当前版本的必做步骤。
+
+```bash
 uv run python -m pytest tests/traffic/retry -q
 ```
+
+</details>
 
 下面的检查由测试从本文提取到空目录执行，依赖同样来自本文。27 与 10 必须来自真实叶子调用计数；另外检查早成功、永久错误和超时不会被外层重新尝试。
 

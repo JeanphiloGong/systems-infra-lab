@@ -1,5 +1,7 @@
 # R03：多主与地理复制
 
+在 `main` 按各版正文逐步创建实验文件，先完成前置版本再运行命令。路径是创建目标；旧测试和 replay 脚本仅供 `reference` 对照。参见 [从零学习约定](../../../docs/learning-workspace.md)。
+
 前置：R01 的复制进度、R02 的读取契约、C01 的分区含义。我们让 A/B 两地区用户修改一个展示名称，先测单主写入路径，再允许双主，在分区后正面处理冲突。最后用只增计数器说明哪些业务可以采用无重复合并。
 
 ## 运行
@@ -13,8 +15,18 @@ uv run python labs/replication/multi_leader/v1.py
 uv run python labs/replication/multi_leader/v2.py
 uv run python labs/replication/multi_leader/v3.py
 uv run python labs/replication/multi_leader/v4.py
+```
+
+<details>
+<summary>可选：参考分支验证</summary>
+
+以下命令只在 [reference 的独立工作区](../../../docs/reference-checks.md) 执行，依赖其中的测试或重放脚本；不属于 main 当前版本的必做步骤。
+
+```bash
 uv run python -m pytest tests/replication/multi_leader -q
 ```
+
+</details>
 
 每章完整打印本版源码和依赖，随后给出可执行检查围栏。测试从正文提取到空目录，同时执行入口与检查；不会从仓库导入遗漏依赖。源码与正文也逐字核对。脚本使用相邻文件导入，请按上面的路径直接运行。
 

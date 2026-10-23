@@ -22,6 +22,8 @@ single 直接使用 v0 SingleLeader，multi 直接使用 v2 MultiLeader。复用
 
 下面是本章完整 checkpoint，包括复用的 v0、v2 和比较入口。
 
+将下面的完整代码保存为 `labs/replication/multi_leader/v0.py`；文件已存在时，以本版内容替换该文件。
+
 <!-- checkpoint: labs/replication/multi_leader/v0.py -->
 
 ```python
@@ -138,6 +140,8 @@ if __name__ == "__main__":
     print({"local_ms": local.latency_ms, "remote_ms": remote.latency_ms, "trace": net.trace})
 ```
 
+将下面的完整代码保存为 `labs/replication/multi_leader/v2.py`；文件已存在时，以本版内容替换该文件。
+
 <!-- checkpoint: labs/replication/multi_leader/v2.py -->
 
 ```python
@@ -215,6 +219,8 @@ if __name__ == "__main__":
     print({"real_ack_ms": [early.acknowledged_ms, later.acknowledged_ms], "winner": store.values["A"].value, "lost": store.writes[1].value})
 ```
 
+将下面的完整代码保存为 `labs/replication/multi_leader/v4.py`；文件已存在时，以本版内容替换该文件。
+
 <!-- checkpoint: labs/replication/multi_leader/v4.py -->
 
 ```python
@@ -274,8 +280,18 @@ if __name__ == "__main__":
 
 ```bash
 uv run python labs/replication/multi_leader/v4.py
+```
+
+<details>
+<summary>可选：参考分支验证</summary>
+
+以下命令只在 [reference 的独立工作区](../../../../docs/reference-checks.md) 执行，依赖其中的测试或重放脚本；不属于 main 当前版本的必做步骤。
+
+```bash
 uv run python -m pytest tests/replication/multi_leader -q
 ```
+
+</details>
 
 默认单程 40ms 时，正常单主成功延迟是 [2,82]，多主是 [2,2]。分区后单主只有 A 成功、B 等待 100ms 超时；多主两边成功，但恢复后 LWW 丢弃 A-profile。下面检查还改变网络输入，防止“测量”退化成固定输出。
 

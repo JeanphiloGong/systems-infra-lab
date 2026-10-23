@@ -8,6 +8,8 @@
 
 v0 在 primary 创建表并写一行，读取 pg_current_wal_lsn，等待 standby pg_last_wal_replay_lsn 达到该位置，再核对数据和 pg_stat_replication 的 streaming 状态。LSN 是进度证据；“脚本退出成功”不是复制证据。standby 写失败证明 hot standby 的只读边界，不证明所有物理复制配置都适合生产。
 
+将下面的完整代码保存为 `infra/r04.compose.yaml`；文件已存在时，以本版内容替换该文件。
+
 <!-- checkpoint: infra/r04.compose.yaml -->
 
 ```yaml
@@ -58,11 +60,15 @@ volumes:
   subscriber-data:
 ```
 
+将下面的完整代码保存为 `labs/replication/postgres/init.sql`；文件已存在时，以本版内容替换该文件。
+
 <!-- checkpoint: labs/replication/postgres/init.sql -->
 
 ```sql
 CREATE ROLE r04_replica WITH LOGIN REPLICATION PASSWORD 'r04_replica_only';
 ```
+
+将下面的完整代码保存为 `labs/replication/postgres/replication.sh`；文件已存在时，以本版内容替换该文件。
 
 <!-- checkpoint: labs/replication/postgres/replication.sh -->
 
@@ -70,6 +76,8 @@ CREATE ROLE r04_replica WITH LOGIN REPLICATION PASSWORD 'r04_replica_only';
 set -eu
 printf '%s\n' 'host replication r04_replica all scram-sha-256' >> "$PGDATA/pg_hba.conf"
 ```
+
+将下面的完整代码保存为 `labs/replication/postgres/standby.sh`；文件已存在时，以本版内容替换该文件。
 
 <!-- checkpoint: labs/replication/postgres/standby.sh -->
 
@@ -81,6 +89,8 @@ if [ ! -f "$PGDATA/PG_VERSION" ]; then
 fi
 exec postgres -D "$PGDATA" -c hot_standby=on -c primary_conninfo='host=primary port=5432 user=r04_replica password=r04_replica_only application_name=r04_standby'
 ```
+
+将下面的完整代码保存为 `labs/replication/postgres/common.py`；文件已存在时，以本版内容替换该文件。
 
 <!-- checkpoint: labs/replication/postgres/common.py -->
 
@@ -111,6 +121,8 @@ def scalar(conn: psycopg.Connection, query: str) -> object:
     row = conn.execute(query).fetchone()
     return None if row is None else row[0]
 ```
+
+将下面的完整代码保存为 `labs/replication/postgres/v0.py`；文件已存在时，以本版内容替换该文件。
 
 <!-- checkpoint: labs/replication/postgres/v0.py -->
 
@@ -153,8 +165,18 @@ if __name__ == "__main__":
 ```bash
 docker compose -f infra/r04.compose.yaml up -d
 uv run python labs/replication/postgres/v0.py
+```
+
+<details>
+<summary>可选：参考分支验证</summary>
+
+以下命令只在 [reference 的独立工作区](../../../../docs/reference-checks.md) 执行，依赖其中的测试或重放脚本；不属于 main 当前版本的必做步骤。
+
+```bash
 uv run python -m pytest tests/replication/postgres -q
 ```
+
+</details>
 
 测试从这些正文围栏写出临时副本，并通过专用端口执行真实 PostgreSQL 检查；不会用模拟响应代替服务。
 

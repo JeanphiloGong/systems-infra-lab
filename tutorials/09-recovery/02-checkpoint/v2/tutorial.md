@@ -2,6 +2,8 @@
 
 The v2 checkpoint adds validated publication and reclamation. Before deleting any WAL, it proves that the selected snapshot can recover the current tip and atomically publishes the manifest. Crash boundaries remain recoverable because old files remain sufficient.
 
+将下面的完整代码保存为 `labs/storage/wal/framing.py`；文件已存在时，以本版内容替换该文件。
+
 <!-- checkpoint: labs/storage/wal/framing.py -->
 
 ```python
@@ -45,6 +47,8 @@ def decode(data: bytes) -> tuple[list[dict[str, object]], int, bool]:
         position = end
     return records, position, False
 ```
+
+将下面的完整代码保存为 `labs/recovery/checkpoint/baseline.py`；文件已存在时，以本版内容替换该文件。
 
 <!-- checkpoint: labs/recovery/checkpoint/baseline.py -->
 
@@ -134,6 +138,8 @@ def recover(directory: Path) -> tuple[dict[str, int], int, int]:
     state, _ = replay(records)
     return state, transactions, byte_count
 ```
+
+将下面的完整代码保存为 `labs/recovery/checkpoint/store.py`；文件已存在时，以本版内容替换该文件。
 
 <!-- checkpoint: labs/recovery/checkpoint/store.py -->
 
@@ -300,5 +306,43 @@ class Store:
         self.sync_directory()
 ```
 
-Run `uv run pytest tests/recovery/checkpoint/test_store.py -q`. The v2 checks exercise publication crash boundaries and reject an unusable snapshot before reclaiming logs.
+Optional: use [参考分支检查](../../../../docs/reference-checks.md). The v2 checks exercise publication crash boundaries and reject an unusable snapshot before reclaiming logs.
 
+## 直接验证本版
+
+先按上面的完整路径保存依赖文件，再从仓库根目录运行下面的完整检查。它只使用临时目录，不依赖 reference 的测试文件。
+
+```bash
+uv run python - <<'PY'
+from pathlib import Path
+from tempfile import TemporaryDirectory
+from labs.recovery.checkpoint.store import Store
+
+with TemporaryDirectory() as folder:
+    directory = Path(folder)
+    store = Store(directory)
+    store.commit(1, {"alice": 90, "bob": 110})
+    store.snapshot(1)
+    store.commit(2, {"alice": 80, "bob": 120})
+    store.snapshot(2)
+    store.publish([2], keep=1)
+    assert list(directory.glob("[0-9]*.wal")) == []
+    assert Store(directory).recover() == ({"alice": 80, "bob": 120}, 2, 0)
+    store.commit(3, {"alice": 70, "bob": 130})
+    assert Store(directory).recover()[:2] == ({"alice": 70, "bob": 130}, 3)
+print("v2 log reclamation and continued writes ok")
+PY
+```
+
+应输出代码末尾的 `ok` 信息且没有断言失败。这个小检查验证本版所示的恢复行为；它没有覆盖全部崩溃注入点或断电恢复。
+
+<details>
+<summary>可选：参考分支验证</summary>
+
+以下命令只在 [reference 的独立工作区](../../../../docs/reference-checks.md) 执行，依赖其中的测试或重放脚本；不属于 main 当前版本的必做步骤。
+
+```bash
+uv run pytest tests/recovery/checkpoint/test_store.py -q
+```
+
+</details>

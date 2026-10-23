@@ -16,6 +16,8 @@ merge 先取集合并，再删除被其他版本因果覆盖的项。重复消�
 
 replicate 捕获不可变快照并安排网络事件。分区下传播被丢弃，但本地确认仍成功。恢复网络后 synchronize 重发两边的当前状态；不执行这个步骤就没有收敛保证。下面是本章完整 checkpoint。
 
+将下面的完整代码保存为 `labs/replication/multi_leader/v0.py`；文件已存在时，以本版内容替换该文件。
+
 <!-- checkpoint: labs/replication/multi_leader/v0.py -->
 
 ```python
@@ -131,6 +133,8 @@ if __name__ == "__main__":
     assert (local.latency_ms, remote.latency_ms) == (2, 82)
     print({"local_ms": local.latency_ms, "remote_ms": remote.latency_ms, "trace": net.trace})
 ```
+
+将下面的完整代码保存为 `labs/replication/multi_leader/v1.py`；文件已存在时，以本版内容替换该文件。
 
 <!-- checkpoint: labs/replication/multi_leader/v1.py -->
 

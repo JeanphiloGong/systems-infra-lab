@@ -6,6 +6,8 @@ An unbounded queue makes acceptance look successful while wait time grows. A bou
 
 ## One change
 
+将下面的完整代码保存为 `bounded.py`；文件已存在时，以本版内容替换该文件。
+
 <!-- checkpoint: bounded.py -->
 
 ```python
@@ -121,3 +123,13 @@ print(result)
 ## Check and freeze
 
 `accepted + rejected` equals the arrival count, and `max_in_flight` remains bounded by the worker plus queue capacity. A rejection is an explicit overload result; it is not successful admission. v2 adds rate and burst control before queue admission.
+
+## 运行当前检查点
+
+按上面的路径保存完整文件后，从仓库根目录运行：
+
+```bash
+uv run python bounded.py
+```
+
+对照本页描述的状态、输出或断言；若没有出现预期结果，先停在当前版检查，不直接进入下一版。

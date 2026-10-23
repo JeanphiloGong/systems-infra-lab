@@ -6,6 +6,8 @@ When one worker slows down, an unbounded upstream queue hides the problem. End-t
 
 ## One change
 
+将下面的完整代码保存为 `backpressure.py`；文件已存在时，以本版内容替换该文件。
+
 <!-- checkpoint: backpressure.py -->
 
 ```python
@@ -127,3 +129,13 @@ for delays in ((0.002, 0.002), (0.002, 0.05)):
 ## Check and freeze
 
 Both runs use two workers and 40 jobs. The second run slows one worker while keeping the other unchanged. It reports producer duration, maximum admission wait, p95 and maximum end-to-end latency, including admission wait, queue wait and service. Admission blocks the single upstream producer when capacity is full. Completion and a four-job in-flight bound are asserted. Timing observations depend on OS scheduling; no fixed speedup is asserted.
+
+## 运行当前检查点
+
+按上面的路径保存完整文件后，从仓库根目录运行：
+
+```bash
+uv run python backpressure.py
+```
+
+对照本页描述的状态、输出或断言；若没有出现预期结果，先停在当前版检查，不直接进入下一版。

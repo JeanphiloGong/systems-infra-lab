@@ -20,6 +20,8 @@ The missing mode kills the worker before recording any decision. recover returns
 
 Run commit, abort, missing, and commit --partial. The expected final balances are [70, 130] for commit and [100, 100] for abort/missing; --partial first exposes [70, 100] and a lock on only the second resource.
 
+将下面的完整代码保存为 `labs/coordination/commit/pg.py`；文件已存在时，以本版内容替换该文件。
+
 <!-- checkpoint: labs/coordination/commit/pg.py -->
 
 ```python
@@ -71,6 +73,8 @@ def balances(dsns: list[str]) -> list[int]:
             result.append(conn.execute("SELECT balance FROM account WHERE id = 1").fetchone()[0])
     return result
 ```
+
+将下面的完整代码保存为 `labs/coordination/commit/v2.py`；文件已存在时，以本版内容替换该文件。
 
 <!-- checkpoint: labs/coordination/commit/v2.py -->
 
@@ -189,7 +193,17 @@ uv run python labs/coordination/commit/v2.py missing
 uv run python labs/coordination/commit/v2.py commit --partial
 ```
 
-The replay suite extracts only these complete fences into a fresh temporary directory and verifies the reported behavior. Run `uv run python -m pytest tests/coordination/commit -q` with the disposable database configured.
+The optional reference-branch replay suite extracts only these complete fences into a fresh temporary directory and verifies the reported behavior. Optional: use [参考分支检查](../../../../docs/reference-checks.md) with the disposable database configured.
 
 Before moving on, verify repeated recovery returns the same outcome. Do not delete an unresolved production journal or roll back a prepared participant merely because its peer is slow.
 
+<details>
+<summary>可选：参考分支验证</summary>
+
+以下命令只在 [reference 的独立工作区](../../../../docs/reference-checks.md) 执行，依赖其中的测试或重放脚本；不属于 main 当前版本的必做步骤。
+
+```bash
+uv run python -m pytest tests/coordination/commit -q
+```
+
+</details>

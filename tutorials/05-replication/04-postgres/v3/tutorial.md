@@ -4,6 +4,8 @@
 
 这不是 WAL 磁盘大小的完整测量：函数只测当前 LSN 与该槽 restart_lsn 的差，WAL 段、checkpoint、其他槽和归档会影响磁盘。暂停消费者长久运行会保留 WAL 并耗尽磁盘；恢复订阅只是让这个槽有机会前进，不保证已经被其他槽或归档需要的段立刻删除。
 
+将下面的完整代码保存为 `labs/replication/postgres/common.py`；文件已存在时，以本版内容替换该文件。
+
 <!-- checkpoint: labs/replication/postgres/common.py -->
 
 ```python
@@ -33,6 +35,8 @@ def scalar(conn: psycopg.Connection, query: str) -> object:
     row = conn.execute(query).fetchone()
     return None if row is None else row[0]
 ```
+
+将下面的完整代码保存为 `labs/replication/postgres/v1.py`；文件已存在时，以本版内容替换该文件。
 
 <!-- checkpoint: labs/replication/postgres/v1.py -->
 
@@ -76,6 +80,8 @@ if __name__ == "__main__":
     print(json.dumps(experiment()))
 ```
 
+将下面的完整代码保存为 `labs/replication/postgres/v3.py`；文件已存在时，以本版内容替换该文件。
+
 <!-- checkpoint: labs/replication/postgres/v3.py -->
 
 ```python
@@ -118,8 +124,18 @@ if __name__ == "__main__":
 ```bash
 docker compose -f infra/r04.compose.yaml up -d
 uv run python labs/replication/postgres/v3.py
+```
+
+<details>
+<summary>可选：参考分支验证</summary>
+
+以下命令只在 [reference 的独立工作区](../../../../docs/reference-checks.md) 执行，依赖其中的测试或重放脚本；不属于 main 当前版本的必做步骤。
+
+```bash
 uv run python -m pytest tests/replication/postgres -q
 ```
+
+</details>
 
 测试从这些正文围栏写出临时副本，并通过专用端口执行真实 PostgreSQL 检查；不会用模拟响应代替服务。
 

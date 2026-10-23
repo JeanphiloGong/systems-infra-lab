@@ -13,6 +13,8 @@
 临时文件可能是崩溃残留，不能当作已提交事务。已发布段缺少一个编号或 CRC 不对时，
 恢复必须失败，而不是返回一个看似合理的部分余额。
 
+将下面的完整代码保存为 `labs/storage/wal/framing.py`；文件已存在时，以本版内容替换该文件。
+
 <!-- checkpoint: labs/storage/wal/framing.py -->
 
 ```python
@@ -56,6 +58,8 @@ def decode(data: bytes) -> tuple[list[dict[str, object]], int, bool]:
         position = end
     return records, position, False
 ```
+
+将下面的完整代码保存为 `labs/recovery/checkpoint/baseline.py`；文件已存在时，以本版内容替换该文件。
 
 <!-- checkpoint: labs/recovery/checkpoint/baseline.py -->
 
@@ -149,9 +153,46 @@ def recover(directory: Path) -> tuple[dict[str, int], int, int]:
 这里的 `framing.py` 是 S03 已验证的长度、互补长度和 CRC 编码；A02 只决定如何
 组织完整事务段和恢复位置。运行 v0 前，先把依赖源码提取到临时目录，或在仓库根目录执行：
 
+## 直接验证本版
+
+先按上面的完整路径保存依赖文件，再从仓库根目录运行下面的完整检查。它只使用临时目录，不依赖 reference 的测试文件。
+
+```bash
+uv run python - <<'PY'
+from pathlib import Path
+from tempfile import TemporaryDirectory
+from labs.recovery.checkpoint.baseline import commit, recover
+
+with TemporaryDirectory() as folder:
+    directory = Path(folder)
+    commit(directory, 1, {"alice": 90, "bob": 110})
+    commit(directory, 2, {"alice": 80, "bob": 120})
+    state, transactions, byte_count = recover(directory)
+    assert state == {"alice": 80, "bob": 120}
+    assert transactions == 2 and byte_count > 0
+    (directory / f"{1:020d}.wal").unlink()
+    try:
+        recover(directory)
+    except ValueError:
+        pass
+    else:
+        raise AssertionError("missing prefix was accepted")
+print("v0 recovery and gap rejection ok")
+PY
+```
+
+应输出代码末尾的 `ok` 信息且没有断言失败。这个小检查验证本版所示的恢复行为；它没有覆盖全部崩溃注入点或断电恢复。
+
+<details>
+<summary>可选：参考分支验证</summary>
+
+以下命令只在 [reference 的独立工作区](../../../../docs/reference-checks.md) 执行，依赖其中的测试或重放脚本；不属于 main 当前版本的必做步骤。
+
 ```bash
 uv run pytest tests/recovery/checkpoint/test_baseline.py -q
 ```
+
+</details>
 
 四项测试分别覆盖正常读取、未发布临时文件、缺段、截断、CRC、非法输入和重复编号。
 冻结这个检查点后仍然有一个清楚的缺口：每次重启都要重新解码整个前缀。下一版会

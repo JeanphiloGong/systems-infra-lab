@@ -12,6 +12,8 @@ expiry_wave 用固定种子把 20 个键安排到 5..8 四个逻辑时隙。每�
 
 本版只使用 Python 3.12 标准库。以下注释给出各文件的路径；依赖也完整打印，独立回放不从工作树补取模块。v0 中的 Origin 是测量探针，复用它不会为被测实现提供合并行为。
 
+将下面的完整代码保存为 `labs/traffic/herd/v0.py`；文件已存在时，以本版内容替换该文件。
+
 <!-- checkpoint: labs/traffic/herd/v0.py -->
 
 ```python
@@ -63,6 +65,8 @@ async def experiment():
 if __name__ == "__main__":
     print(json.dumps(asyncio.run(experiment())))
 ```
+
+将下面的完整代码保存为 `labs/traffic/herd/v2.py`；文件已存在时，以本版内容替换该文件。
 
 <!-- checkpoint: labs/traffic/herd/v2.py -->
 
@@ -176,6 +180,8 @@ async def experiment():
 if __name__ == "__main__":
     print(json.dumps(asyncio.run(experiment())))
 ```
+
+将下面的完整代码保存为 `labs/traffic/herd/v3.py`；文件已存在时，以本版内容替换该文件。
 
 <!-- checkpoint: labs/traffic/herd/v3.py -->
 
@@ -314,8 +320,18 @@ if __name__ == "__main__":
 
 ```bash
 uv run python labs/traffic/herd/v3.py
+```
+
+<details>
+<summary>可选：参考分支验证</summary>
+
+以下命令只在 [reference 的独立工作区](../../../../docs/reference-checks.md) 执行，依赖其中的测试或重放脚本；不属于 main 当前版本的必做步骤。
+
+```bash
 uv run pytest tests/traffic/herd -q -k "[3]"
 ```
+
+</details>
 
 验收结果：随机过期峰值低于同步过期且同种子可重放；SWR 立即旧读与一次后台加载；硬过期等待；失败不续期；两个进程各一次。 脚本中的断言会检查这些语义，pytest 还会逐字核对正文源码，写入临时目录后以独立解释器运行。本实验用 Event 和调度让出点安排交错，不依赖猜测任务已开始的固定长 sleep。
 

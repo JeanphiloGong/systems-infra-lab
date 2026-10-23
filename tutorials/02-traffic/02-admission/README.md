@@ -1,5 +1,7 @@
 # F02：负载均衡、限流与背压
 
+在 `main` 按各版正文逐步创建实验文件，先完成前置版本再运行命令。路径是创建目标；旧测试和 replay 脚本仅供 `reference` 对照。参见 [从零学习约定](../../../docs/learning-workspace.md)。
+
 前置：[F01 连接管理](../../01-storage-engines/07-connections/README.md)。本地线程与合成服务延迟用于观察排队、拒绝和调度行为，不代表生产网络吞吐。
 
 - [v0：无限队列隐藏过载](v0/tutorial.md)
@@ -11,9 +13,16 @@
 
 在仓库根目录运行：
 
+<details>
+<summary>可选：参考分支验证</summary>
+
+以下命令只在 [reference 的独立工作区](../../../docs/reference-checks.md) 执行，依赖其中的测试或重放脚本；不属于 main 当前版本的必做步骤。
+
 ```bash
 uv run pytest tests/traffic/admission -q
 uv run python tests/traffic/admission/replay_f02.py
 ```
+
+</details>
 
 验收状态与审核证据见[实施进度](../../../docs/progress.md)。

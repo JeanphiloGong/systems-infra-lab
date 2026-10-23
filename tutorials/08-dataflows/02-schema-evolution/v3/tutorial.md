@@ -4,6 +4,8 @@ contract 在同一事务内锁表并检查 migration_clients 中旧协议全部 
 
 仅运行专用 E02 PostgreSQL（端口 55451）。全部成功路径清理实验表；测试还从独立临时目录提取代码，确认没有依赖工作区实现。
 
+将下面的完整代码保存为 `labs/dataflows/schema_evolution/common.py`；文件已存在时，以本版内容替换该文件。
+
 <!-- checkpoint: labs/dataflows/schema_evolution/common.py -->
 
 ```python
@@ -25,6 +27,8 @@ def reset(conn: psycopg.Connection) -> None:
     conn.execute("DROP TABLE IF EXISTS schema_backfill_checkpoint, migration_clients")
     conn.execute("DROP TABLE IF EXISTS profiles")
 ```
+
+将下面的完整代码保存为 `labs/dataflows/schema_evolution/v3.py`；文件已存在时，以本版内容替换该文件。
 
 <!-- checkpoint: labs/dataflows/schema_evolution/v3.py -->
 
@@ -127,7 +131,23 @@ if __name__ == "__main__":
 
 ```bash
 docker compose -f infra/e02.compose.yaml up -d --wait
+```
+
+先按上面的路径保存 `common.py` 与本版脚本，按模块入口启动专用 E02 数据库。下面直接执行本版 `experiment()` 的断言并打印真实结果；同目录 import 要使用文件运行方式：
+
+```bash
+uv run python labs/dataflows/schema_evolution/v3.py
+```
+
+<details>
+<summary>可选：参考分支验证</summary>
+
+以下命令只在 [reference 的独立工作区](../../../../docs/reference-checks.md) 执行，依赖其中的测试或重放脚本；不属于 main 当前版本的必做步骤。
+
+```bash
 E02_DATABASE_URL='postgresql://e02:e02_local_only@127.0.0.1:55451/e02' uv run pytest 'tests/dataflows/schema_evolution/test_e02_replay.py::test_real_postgres_schema_evolution[3]' -q
 ```
+
+</details>
 
 完成全部实验后用 `docker compose -f infra/e02.compose.yaml down -v` 清理专用服务。下一步：用独立环境验证发布协调和业务客户端退役，不把本实验当作自动部署平台。
