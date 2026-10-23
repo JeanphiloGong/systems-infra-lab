@@ -10,6 +10,8 @@ If code leaves a transaction open or relies on `SET` state surviving a checkout,
 
 When a transaction-pool proxy is available, two client connections can share one backend session. The proxy must reset transaction state between clients; it cannot preserve arbitrary session state across requests.
 
+将下面的完整代码保存为 `proxy.py`；文件已存在时，以本版内容替换该文件。
+
 <!-- checkpoint: proxy.py -->
 
 ```python
@@ -35,6 +37,8 @@ def observe() -> dict[str, object]:
 if __name__ == "__main__":
     print(observe())
 ```
+
+将下面的完整代码保存为 `session_boundary.py`；文件已存在时，以本版内容替换该文件。
 
 <!-- checkpoint: session_boundary.py -->
 
@@ -93,10 +97,20 @@ That is transaction pooling, not arbitrary protocol multiplexing.
 export SYSTEMS_LAB_DATABASE_URL='postgresql://systems_lab:systems_lab_local_only@127.0.0.1:55432/systems_lab'
 uv run python session_boundary.py
 export SYSTEMS_LAB_POOL_URL='postgresql://systems_lab:systems_lab_local_only@127.0.0.1:56432/systems_lab'
-docker compose -f infra/pgbouncer.compose.yaml up -d
+docker compose -f infra/postgres.compose.yaml -f infra/pgbouncer.compose.yaml up -d --wait
 uv run python proxy.py
+```
+
+<details>
+<summary>可选：参考分支验证</summary>
+
+以下命令只在 [reference 的独立工作区](../../../../docs/reference-checks.md) 执行，依赖其中的测试或重放脚本；不属于 main 当前版本的必做步骤。
+
+```bash
 uv run pytest tests/traffic/connections/test_f01_pool.py -q
 ```
+
+</details>
 
 The check reports the observed persisted value and transaction status. It does
 not claim that every server-side session setting is reset automatically;

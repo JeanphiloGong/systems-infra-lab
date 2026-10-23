@@ -8,6 +8,8 @@ Writing a queue around raw `psycopg.Connection` objects leaves transaction reset
 
 ## One change
 
+将下面的完整代码保存为 `pool.py`；文件已存在时，以本版内容替换该文件。
+
 <!-- checkpoint: pool.py -->
 
 ```python
@@ -32,10 +34,15 @@ def make_pool(min_size: int = 0, max_size: int = 4, timeout: float = 1.0, max_wa
 
 
 if __name__ == "__main__":
-    pool = make_pool(min_size=1, max_size=2)
+    pool = make_pool(min_size=1, max_size=1)
     try:
-        with pool.connection() as connection:
-            print(connection.execute("SELECT 1").fetchone()[0])
+        with pool.connection() as first:
+            first_pid = first.execute("SELECT pg_backend_pid()").fetchone()[0]
+        with pool.connection() as second:
+            second_pid = second.execute("SELECT pg_backend_pid()").fetchone()[0]
+            assert second is first
+            assert second_pid == first_pid
+        print({"sequential_borrows": 2, "same_connection": True, "backend_pid": second_pid})
     finally:
         pool.close()
 ```
@@ -47,7 +54,17 @@ if __name__ == "__main__":
 ```bash
 export SYSTEMS_LAB_DATABASE_URL='postgresql://systems_lab:systems_lab_local_only@127.0.0.1:55432/systems_lab'
 uv run python pool.py
+```
+
+<details>
+<summary>可选：参考分支验证</summary>
+
+以下命令只在 [reference 的独立工作区](../../../../docs/reference-checks.md) 执行，依赖其中的测试或重放脚本；不属于 main 当前版本的必做步骤。
+
+```bash
 uv run pytest tests/traffic/connections/test_f01_pool.py -q
 ```
 
-The reuse test checks object identity across two sequential borrows with `max_size=1`. That is evidence of reuse in this run, not a promise that a connection is never replaced after a server or network failure.
+</details>
+
+The direct program makes two sequential borrows with `max_size=1` and checks both Python object identity and PostgreSQL backend PID. Expect `sequential_borrows=2` and `same_connection=True`; the PID varies. The first context must exit before the second begins, otherwise the sole connection is still borrowed. This proves reuse in this run, not that connections survive server or network failure forever.

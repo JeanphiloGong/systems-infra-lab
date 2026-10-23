@@ -14,7 +14,7 @@ Replay:
 ```bash
 export SYSTEMS_LAB_DATABASE_URL='postgresql://systems_lab:systems_lab_local_only@127.0.0.1:55432/systems_lab'
 export SYSTEMS_LAB_POOL_URL='postgresql://systems_lab:systems_lab_local_only@127.0.0.1:56432/systems_lab'
-docker compose -f infra/pgbouncer.compose.yaml up -d
+docker compose -f infra/postgres.compose.yaml -f infra/pgbouncer.compose.yaml up -d --wait
 uv run pytest tests/traffic/connections/test_f01_pool.py -q
 ```
 

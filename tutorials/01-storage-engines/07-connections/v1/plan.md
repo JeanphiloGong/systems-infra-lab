@@ -1,19 +1,9 @@
-# F01 v1: bounded session reuse
+# F01 v1：有界连接复用计划
 
-Scenario: handlers borrow sessions from `psycopg_pool.ConnectionPool`; `max_size=4`, `timeout=1.0`, and `max_waiting=32` bound physical sessions and waiting borrowers.
+依赖 v0 的直接 PostgreSQL 连接；目标把连接生命周期交给 psycopg_pool，同时保留 SQL 的真实执行。
 
-1. **Pressure/naive:** a hand-rolled queue must reset transactions, replace broken sessions, and close on shutdown; omitting one leaks state or capacity.
-2. **Break:** hold a checkout while another request arrives; the raw approach has no defined wait limit.
-3. **Change/check:** freeze `pool.py` with `make_pool` validation and `with pool.connection()`. Run `SELECT 1`, print `1`, and close in `finally`; the test checks sequential reuse with `max_size=1`.
-4. **Freeze/limit/next:** identity reuse is evidence from this run, not permanence after a network failure. v2 makes exhaustion and exception cleanup observable.
+1. pool.py 的 make_pool 验证 min/max、timeout 与 max_waiting，构造官方 ConnectionPool；使用 connection 上下文持有并归还，finally close 结束池。
+2. 直接入口用 min_size=max_size=1，第一次借出查询 pg_backend_pid，退出后再借一次；断言同一 Python 对象和同一 backend PID，输出 sequential_borrows=2。
+3. 执行 `uv run python pool.py`，需要 SYSTEMS_LAB_DATABASE_URL 指向专用数据库。复用是本次观测，连接失效后池可替换对象；v2 再制造耗尽与异常归还。
 
-Checkpoint: `tutorial.md` fence `pool.py`.
-
-Replay:
-
-```bash
-export SYSTEMS_LAB_DATABASE_URL='postgresql://systems_lab:systems_lab_local_only@127.0.0.1:55432/systems_lab'
-uv run pytest tests/traffic/connections/test_f01_pool.py -q
-```
-
-Requires PostgreSQL and `psycopg_pool`.
+完整 checkpoint 见 [正文](tutorial.md)，参考分支测试不作为当前入口的替代。
