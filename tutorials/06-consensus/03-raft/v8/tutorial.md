@@ -1,16 +1,16 @@
-# C03 v8：故障回归与真实 etcd 三进程
+# C03 v8：保留全部回归并对照真实 etcd
 
-此前确定性模型便于控制投递，却没有真实独立进程和成熟 Raft 服务。本版先执行 v1/v3-v7 的故障集，再启动三个 etcd 3.5.17 进程：查明真实领导者、写入 before、杀死领导者、在剩余多数写入 after、重启旧领导并读取 after，最后停掉两个成员验证单节点不能确认写入。
+确定性模型能安排精确故障，但还没有真实服务的独立进程和网络超时。本版保留 v7 全部本地回归，另以固定版本 etcd 启动三进程，观察 leader 退出、恢复与少数派写入。
 
-服务只监听本机动态端口，临时目录保存数据，finally 结束所有进程。HTTP 使用 etcd 的 v3 JSON gateway。请求超时只证明未获得成功确认，不能推断写入永不提交。固定版本实验不代表推荐生产部署该版本；生产选型还要评估受支持版本、认证、备份和运维。
+前置：[v7](../v7/tutorial.md) 的实际代码。
 
-## 从失败轨迹到实现
+## 1. 保留全部回归并对照真实 etcd
 
-先阅读 experiments 中的场景输入与断言，再回到 Node 的状态转换。每次 receive 都由实际消息触发；持久化成功后才产生成功响应。完成这一版后，下面的整份 checkpoint 是下一版的可运行基线。
+model.py 与 experiments.py 的内容沿用 v7，run_all 运行每个已出现的检查函数，没有版本开关。etcd_demo.py 通过 v3 JSON gateway 发真实读写，finally 结束自己创建的进程。请求超时只说明未获成功确认，不能推断写永不提交。
 
-运行前准备 etcd 3.5.17 官方 Linux amd64 二进制，例如从 `https://storage.googleapis.com/etcd/v3.5.17/etcd-v3.5.17-linux-amd64.tar.gz` 下载并解压到本地工具目录，再设置 `ETCD_BINARY` 为其绝对路径。二进制不提交到仓库。
+下面冻结沿用的完整模型；机制与 v7 相同。
 
-<!-- checkpoint: labs/consensus/raft/advanced.py -->
+<!-- checkpoint: labs/consensus/raft/model.py -->
 
 ```python
 from __future__ import annotations
@@ -260,19 +260,40 @@ class Cluster:
         self.deadline[name] = self.now + 10 + self.members.index(name)
 ```
 
-<!-- checkpoint: labs/consensus/raft/advanced_experiments.py -->
+## 2. 运行本版检查并保留旧行为
+
+替换 `labs/consensus/raft/experiments.py`。各检查使用单独临时目录，数据和故障互不污染。
+
+<!-- checkpoint: labs/consensus/raft/experiments.py -->
 
 ```python
-from __future__ import annotations
-
+from pathlib import Path
+from tempfile import TemporaryDirectory
 import copy
 import json
 import subprocess
 import sys
-from pathlib import Path
-from tempfile import TemporaryDirectory
 
-from .advanced import Cluster, Node
+from .model import Node, Cluster
+
+def state_machine(directory):
+    cluster = Cluster(directory)
+    cluster.timeout('a')
+    cluster.drain()
+    node = cluster.nodes['a']
+    node.append('mode', 'safe')
+    # Direct local apply checks the state machine; it is not a client commit API.
+    assert node.state == {} and node.commit == 0
+    node.apply(1)
+    node.apply(1)
+    assert node.state == {'mode': 'safe'} and node.commit == 1
+    try:
+        node.apply(2)
+    except ValueError:
+        pass
+    else:
+        raise AssertionError('committed beyond log')
+    return dict(commit_index=node.commit, state=node.state)
 
 
 def election(directory):
@@ -292,7 +313,7 @@ def election(directory):
     assert not reply[0]['granted']
     worker = """import os,sys
 from pathlib import Path
-from labs.consensus.raft.advanced import Node
+from labs.consensus.raft.model import Node
 n=Node('b',('a','b','c'),Path(sys.argv[1]))
 assert n.vote=='a' and n.term==2
 assert not n.receive(dict(src='c',kind='vote',term=2,last=0,last_term=0))[0]['granted']
@@ -304,6 +325,31 @@ os._exit(74)
     assert cluster.nodes['b'].vote == 'a' and cluster.nodes['b'].term == 2
     return dict(simultaneous_candidates=3, elected_term=2, restart_vote=cluster.nodes['b'].vote,
                 messages=len(cluster.trace), restart_exit=crashed.returncode)
+
+def prefix_repair(directory):
+    cluster = Cluster(directory)
+    cluster.timeout('a')
+    cluster.drain()
+    follower = cluster.nodes['b']
+    bad = dict(src='a', dst='b', kind='append', term=1, request=1,
+               previous=1, previous_term=1, entries=[], commit=0)
+    assert not follower.receive(bad)[0]['ok']
+    first = dict(bad, previous=0, previous_term=0,
+                 entries=[dict(term=1, key='mode', value='old')])
+    assert follower.receive(first)[0]['ok']
+    assert follower.receive(first)[0]['ok'] and follower.last == 1
+    repair = dict(first, term=3, request=2, commit=1,
+                  entries=[dict(term=3, key='mode', value='new')])
+    assert follower.receive(repair)[0]['ok']
+    assert follower.log == [dict(term=3, key='mode', value='new')]
+    assert follower.state == {'mode': 'new'} and follower.commit == 1
+    try:
+        follower.receive(dict(repair, term=4, entries=[dict(term=4, key='mode', value='unsafe')]))
+    except ValueError as error:
+        assert str(error) == 'committed prefix conflict'
+    else:
+        raise AssertionError('committed entry overwritten')
+    return dict(bad_prefix_rejected=True, repaired_term=3, state=follower.state)
 
 
 def majority(directory):
@@ -335,7 +381,6 @@ def majority(directory):
     return dict(old_term_commit=old_term_commit, current_term_commit=2,
                 durable_lengths=[Node(n, cluster.members, directory).last for n in cluster.members])
 
-
 def freshness(directory):
     cluster = Cluster(directory)
     cluster.timeout('a')
@@ -357,7 +402,6 @@ def freshness(directory):
     assert all(node.state == {'mode': 'committed', 'next': 'kept'} for node in cluster.nodes.values())
     return dict(stale_candidate_votes=1, winner='b', preserved='committed')
 
-
 def crashes(directory):
     outcomes = {}
     for action in ('vote', 'append', 'commit', 'snapshot'):
@@ -376,7 +420,7 @@ def crashes(directory):
                 node.apply(1)
             worker = """import sys
 from pathlib import Path
-from labs.consensus.raft.advanced import Node
+from labs.consensus.raft.model import Node
 n=Node('a',('a','b','c'),Path(sys.argv[1]))
 n.fault=sys.argv[3]
 action=sys.argv[2]
@@ -405,7 +449,6 @@ else: n.compact()
                 assert recovered.state == {'mode': 'saved'}
             outcomes[action + ':' + fault] = dict(exit=killed.returncode, commit=recovered.commit, base=recovered.base)
     return outcomes
-
 
 def faults(directory):
     cluster = Cluster(directory)
@@ -436,7 +479,6 @@ def faults(directory):
     return dict(final_commit=2, state=cluster.nodes['a'].state, delivered=len(cluster.trace),
                 dropped=sum(item['dropped'] for item in cluster.trace))
 
-
 def snapshots(directory):
     cluster = Cluster(directory)
     cluster.timeout('a')
@@ -464,16 +506,49 @@ def snapshots(directory):
     return dict(base=lagging.base, last=lagging.last, commit=lagging.commit,
                 snapshot=lagging.snapshot_state, state=lagging.state)
 
-
-def run(version):
+def run_all():
+    results = {}
     with TemporaryDirectory() as folder:
-        path = Path(folder)
-        return {1: election, 3: majority, 4: freshness, 5: crashes, 6: faults, 7: snapshots}[version](path)
+        case = Path(folder) / "state_machine"
+        case.mkdir()
+        results["state_machine"] = state_machine(case)
+        case = Path(folder) / "election"
+        case.mkdir()
+        results["election"] = election(case)
+        case = Path(folder) / "prefix_repair"
+        case.mkdir()
+        results["prefix_repair"] = prefix_repair(case)
+        case = Path(folder) / "majority"
+        case.mkdir()
+        results["majority"] = majority(case)
+        case = Path(folder) / "freshness"
+        case.mkdir()
+        results["freshness"] = freshness(case)
+        case = Path(folder) / "crashes"
+        case.mkdir()
+        results["crashes"] = crashes(case)
+        case = Path(folder) / "faults"
+        case.mkdir()
+        results["faults"] = faults(case)
+        case = Path(folder) / "snapshots"
+        case.mkdir()
+        results["snapshots"] = snapshots(case)
+    return results
 
 
-if __name__ == '__main__':
-    print(json.dumps(run(int(sys.argv[1])), sort_keys=True))
+if __name__ == "__main__":
+    print(json.dumps(run_all(), sort_keys=True))
 ```
+
+```bash
+uv run python -m labs.consensus.raft.experiments
+```
+
+先执行模型 run_all，再运行 etcd_demo。etcd 应报告三个真实进程、恢复值 after、少数派未获写成功。固定成员模型仍不实现动态成员或线性一致读协议；真实 etcd 的完整行为不能从简化模型推导。
+
+## 3. 在三个真实进程中重复换主
+
+准备 etcd 3.5.17 的官方 Linux amd64 二进制，设置 `ETCD_BINARY` 为绝对路径。下载地址：`https://storage.googleapis.com/etcd/v3.5.17/etcd-v3.5.17-linux-amd64.tar.gz`。这是固定版本实验，不是生产版本建议；无需把二进制放入仓库。
 
 <!-- checkpoint: labs/consensus/raft/etcd_demo.py -->
 
@@ -491,7 +566,7 @@ import urllib.request
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
-from .advanced_experiments import run
+from .experiments import run_all
 
 
 def port():
@@ -612,7 +687,7 @@ def run_etcd():
 
 
 def main():
-    evidence = {str(version): run(version) for version in (1, 3, 4, 5, 6, 7)}
+    evidence = run_all()
     evidence['etcd'] = run_etcd()
     print(json.dumps(evidence, sort_keys=True))
 
@@ -621,15 +696,8 @@ if __name__ == '__main__':
     main()
 ```
 
-## 检查点
-
-在空目录中创建上述文件后运行：
-
 ```bash
-python -m labs.consensus.raft.etcd_demo
+uv run python -m labs.consensus.raft.etcd_demo
 ```
 
-应输出全部故障结果和 etcd 实测结果；进程数为 3、恢复值为 after、少数写入未确认。
-
-这是一条固定成员教学链。它没有动态成员变更、联合共识、线性一致读协议或生产性能保证。验证通过后冻结本版代码，再进入下一版；测试通过不等于算法证明。
-
+先写 before，杀死查询到的 leader，在剩余多数写 after；重启旧 leader 后读取 after，最后停两个成员检查少数写入未获确认。所有数据、监听端口和进程由本次实验创建并清理。

@@ -1,15 +1,11 @@
-# C03 v7: snapshots preserve absolute positions
+# C03 v7 实施计划：用快照追赶被截断的日志
 
-Scenario: follower `c` misses entries through index 2 while leader compacts its prefix; the next entry is absolute index 3.
+v6 的日志永远增长。若直接删除已提交前缀，离线 follower 的 nextIndex 会指向已经不存在的位置。本版保存已应用状态及其最后 index/term，并给落后的 follower 发送 snapshot，再发送剩余日志。
 
-Pressure/change: retain `base`/`last` metadata, snapshot state `x=2`, and send a snapshot when `nextIndex` falls inside the compacted range before appending index 3.
+依赖：v6 的 model.py/experiments.py。
 
-Checkpoint: leader `base=2,last=3`, empty compacted log before the new entry, snapshot `{'x':'2'}`; lagging follower ends at `base=2,last=commit=3,state={'x':'3'}` and trace includes `snapshot`.
+1. 在 `labs/consensus/raft/model.py` 实施：Node 增加 base/base_term/snapshot_state：base 是已经压缩的绝对位置，last=base+len(log)，列表访问减 base+1。旧磁盘文件缺少这三项时按 0/0/{} 读取，v6 数据仍表示未压缩前缀；只新增字段，不另起另一套 model。compact 仅压缩到 commit；persist 同时发布快照元数据、状态和后缀。send_log 在 next<=base 时改发 snapshot；接收方先持久化快照再确认，再追赶后缀。只有边界 term 匹配才能保留本地后缀。
+2. `experiments.py` 保留已出现的检查并加入本版日程。验收：c 离线时提交 x=1/2，将 leader 压缩到 base=2，再提交 x=3；恢复 c 后必须收到 snapshot，重启 c 仍有 base=2、last=commit=3、state x=3。九个发布故障扩充为十二个，包含快照的三个发布点；此前全部回归仍执行。
+3. 从仓库根运行 `uv run python -m labs.consensus.raft.experiments`；完整文件见 [正文](tutorial.md)。
 
-Limit/next: one snapshot format and fixed membership. v8 combines all regressions with a real three-process etcd experiment.
-
-Freeze artifact: the exact historical fences are retained at `labs/consensus/raft/checkpoints/v7/advanced.py` and `advanced_experiments.py` for parity comparison.
-
-Replay: `uv run python tests/consensus/raft/replay_c03.py --version 7`.
-
-**Naive:** compact by deleting the prefix without absolute positions. **Break:** lagging follower asks for an index that no longer exists. **Change:** retain base/term and send snapshot before absolute index 3. **Check:** base/last/commit 2/3/3, snapshot x=2, follower x=3, trace snapshot. **Freeze:** v7 snapshots named above. **Limit/Still-lacks:** one local snapshot format. **Next:** v8 regression plus etcd.
+范围：一个协议规则或验证能力的增量；不会提前放入后续快照与故障机制。

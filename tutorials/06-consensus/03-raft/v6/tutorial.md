@@ -1,14 +1,16 @@
-# C03 v6：用队列重放分区、丢包、重复和乱序
+# C03 v6：控制消息丢失、重复和倒序
 
-先提交 stable=yes，再隔离 a。a 的孤立写入不能提交；b/c 选出新领导者并提交 successor。网络恢复时，我们复制待投递消息、丢弃其中一条并逆序投递，最后发送心跳重新推进。所有节点必须保留 stable，并统一到 successor。
+v5 的持久化检查不覆盖迟到响应。旧 leader 被隔离后产生未提交后缀，剩下多数提交不同后缀，再恢复通信并重复、倒序、丢弃消息。目标是所有节点最后保留已提交前缀并接受新 leader 的后缀。
 
-队列是显式传输模型，不是数字计数替代网络。每条消息进入节点 receive；trace 记录实际丢弃的方向与内容。request ID 使旧响应和重复响应不能倒退进度。实验覆盖指定有限轨迹，不宣称穷尽全部调度或证明 Raft。
+前置：[v5](../v5/tutorial.md) 的实际代码。
 
-## 从失败轨迹到实现
+## 1. 控制消息丢失、重复和倒序
 
-先阅读 experiments 中的场景输入与断言，再回到 Node 的状态转换。每次 receive 都由实际消息触发；持久化成功后才产生成功响应。完成这一版后，下面的整份 checkpoint 是下一版的可运行基线。
+核心 Node 不变。Cluster.deliver 新增 position/drop，drain 新增 reverse；原来的 term、pending 和 committed-prefix 规则要承受新日程。丢包后必须再显式 broadcast 才保证有新尝试；模型不承诺无限丢包下仍可用。故障 trace 记录每条投递是否被丢弃，计数来自实际队列。
 
-<!-- checkpoint: labs/consensus/raft/advanced.py -->
+下面是本版的完整 `model.py` checkpoint；替换上一版同名文件，不创建 advanced.py。
+
+<!-- checkpoint: labs/consensus/raft/model.py -->
 
 ```python
 from __future__ import annotations
@@ -29,12 +31,9 @@ class Node:
         self.term = saved.get('term', 0)
         self.vote = saved.get('vote')
         self.log = saved.get('log', [])
-        self.base = saved.get('base', 0)
-        self.base_term = saved.get('base_term', 0)
-        self.snapshot_state = saved.get('snapshot_state', {})
         self.commit = saved.get('commit', 0)
-        self.state = dict(self.snapshot_state)
-        for entry in self.log[:self.commit - self.base]:
+        self.state = {}
+        for entry in self.log[:self.commit]:
             self.state[entry['key']] = entry['value']
         self.role, self.votes = 'follower', set()
         self.match, self.next, self.pending = {}, {}, {}
@@ -43,16 +42,16 @@ class Node:
 
     @property
     def last(self):
-        return self.base + len(self.log)
+        return len(self.log)
 
     def term_at(self, index):
-        if index == self.base:
-            return self.base_term
-        return self.log[index - self.base - 1]['term']
+        if index == 0:
+            return 0
+        return self.log[index - 1]['term']
 
     def persist(self):
         payload = {key: getattr(self, key) for key in
-                   ('term', 'vote', 'log', 'base', 'base_term', 'snapshot_state', 'commit')}
+                   ('term', 'vote', 'log', 'commit')}
         temporary = self.path.with_suffix('.tmp')
         with temporary.open('w') as stream:
             json.dump(payload, stream)
@@ -96,13 +95,10 @@ class Node:
         self.serial += 1
         self.pending[peer] = self.serial
         position = self.next[peer]
-        if position <= self.base:
-            return self.message(peer, 'snapshot', request=self.serial, base=self.base,
-                                base_term=self.base_term, state=dict(self.snapshot_state))
         previous = position - 1
         return self.message(peer, 'append', request=self.serial, previous=previous,
                             previous_term=self.term_at(previous),
-                            entries=copy.deepcopy(self.log[position - self.base - 1:]),
+                            entries=copy.deepcopy(self.log[position - 1:]),
                             commit=self.commit)
 
     def apply(self, index):
@@ -113,17 +109,8 @@ class Node:
         old, self.commit = self.commit, index
         self.persist()
         for position in range(old + 1, index + 1):
-            entry = self.log[position - self.base - 1]
+            entry = self.log[position - 1]
             self.state[entry['key']] = entry['value']
-
-    def compact(self):
-        if self.commit <= self.base:
-            return
-        term = self.term_at(self.commit)
-        self.log = self.log[self.commit - self.base:]
-        self.base, self.base_term = self.commit, term
-        self.snapshot_state = dict(self.state)
-        self.persist()
 
     def receive(self, message):
         source, kind, term = message['src'], message['kind'], message['term']
@@ -133,7 +120,7 @@ class Node:
             self.term, self.vote, self.role = term, None, 'follower'
             self.persist()
         if term < self.term:
-            if kind in ('append', 'snapshot'):
+            if kind == 'append':
                 return [self.message(source, 'ack', request=message['request'], ok=False, matched=0)]
             if kind == 'vote':
                 return [self.message(source, 'voted', granted=False)]
@@ -156,28 +143,16 @@ class Node:
             self.match[self.name] = self.last
             self.next = {name: self.last + 1 for name in self.members}
             return self.broadcast()
-        if kind == 'snapshot':
-            self.role = 'follower'
-            if message['base'] > self.commit:
-                index = message['base']
-                keep = index <= self.last and self.term_at(index) == message['base_term']
-                self.log = self.log[index - self.base:] if keep else []
-                self.base, self.base_term = index, message['base_term']
-                self.snapshot_state = dict(message['state'])
-                self.commit, self.state = index, dict(message['state'])
-                self.persist()
-            return [self.message(source, 'ack', request=message['request'],
-                                 ok=True, matched=message['base'])]
         if kind == 'append':
             self.role = 'follower'
             previous = message['previous']
-            if not self.base <= previous <= self.last or self.term_at(previous) != message['previous_term']:
+            if not 0 <= previous <= self.last or self.term_at(previous) != message['previous_term']:
                 return [self.message(source, 'ack', request=message['request'], ok=False, matched=0)]
             for offset, entry in enumerate(message['entries'], previous + 1):
                 if offset <= self.last and self.term_at(offset) != entry['term']:
                     if offset <= self.commit:
                         raise ValueError('committed prefix conflict')
-                    del self.log[offset - self.base - 1:]
+                    del self.log[offset - 1:]
                 if offset > self.last:
                     self.log.append(dict(entry))
             self.persist()
@@ -239,7 +214,7 @@ class Cluster:
         self.trace.append(dict(message, dropped=lost))
         if not lost:
             node = self.nodes[message['dst']]
-            valid_contact = message['kind'] in ('append', 'snapshot') and message['term'] >= node.term
+            valid_contact = message['kind'] == 'append' and message['term'] >= node.term
             responses = node.receive(message)
             vote_granted = message['kind'] == 'vote' and responses[0]['granted']
             if valid_contact or vote_granted:
@@ -258,19 +233,188 @@ class Cluster:
         self.deadline[name] = self.now + 10 + self.members.index(name)
 ```
 
-<!-- checkpoint: labs/consensus/raft/advanced_experiments.py -->
+## 2. 运行本版检查并保留旧行为
+
+替换 `labs/consensus/raft/experiments.py`。各检查使用单独临时目录，数据和故障互不污染。
+
+<!-- checkpoint: labs/consensus/raft/experiments.py -->
 
 ```python
-from __future__ import annotations
-
+from pathlib import Path
+from tempfile import TemporaryDirectory
 import copy
 import json
 import subprocess
 import sys
-from pathlib import Path
-from tempfile import TemporaryDirectory
-from .advanced import Cluster, Node
 
+from .model import Node, Cluster
+
+def state_machine(directory):
+    cluster = Cluster(directory)
+    cluster.timeout('a')
+    cluster.drain()
+    node = cluster.nodes['a']
+    node.append('mode', 'safe')
+    # Direct local apply checks the state machine; it is not a client commit API.
+    assert node.state == {} and node.commit == 0
+    node.apply(1)
+    node.apply(1)
+    assert node.state == {'mode': 'safe'} and node.commit == 1
+    try:
+        node.apply(2)
+    except ValueError:
+        pass
+    else:
+        raise AssertionError('committed beyond log')
+    return dict(commit_index=node.commit, state=node.state)
+
+
+def election(directory):
+    cluster = Cluster(directory)
+    cluster.deadline = {name: 10 for name in cluster.members}
+    cluster.tick(10)
+    cluster.drain()
+    assert all(node.role == 'candidate' for node in cluster.nodes.values())
+    assert {node.term for node in cluster.nodes.values()} == {1}
+    cluster.deadline = dict(a=20, b=21, c=22)
+    cluster.tick(20)
+    cluster.drain()
+    assert cluster.nodes['a'].role == 'leader'
+    cluster.restart('b')
+    assert cluster.nodes['b'].vote == 'a'
+    reply = cluster.nodes['b'].receive(dict(src='c', dst='b', kind='vote', term=2, last=0, last_term=0))
+    assert not reply[0]['granted']
+    worker = """import os,sys
+from pathlib import Path
+from labs.consensus.raft.model import Node
+n=Node('b',('a','b','c'),Path(sys.argv[1]))
+assert n.vote=='a' and n.term==2
+assert not n.receive(dict(src='c',kind='vote',term=2,last=0,last_term=0))[0]['granted']
+os._exit(74)
+"""
+    crashed = subprocess.run([sys.executable, '-c', worker, str(directory)], timeout=10)
+    assert crashed.returncode == 74
+    cluster.restart('b')
+    assert cluster.nodes['b'].vote == 'a' and cluster.nodes['b'].term == 2
+    return dict(simultaneous_candidates=3, elected_term=2, restart_vote=cluster.nodes['b'].vote,
+                messages=len(cluster.trace), restart_exit=crashed.returncode)
+
+def prefix_repair(directory):
+    cluster = Cluster(directory)
+    cluster.timeout('a')
+    cluster.drain()
+    follower = cluster.nodes['b']
+    bad = dict(src='a', dst='b', kind='append', term=1, request=1,
+               previous=1, previous_term=1, entries=[], commit=0)
+    assert not follower.receive(bad)[0]['ok']
+    first = dict(bad, previous=0, previous_term=0,
+                 entries=[dict(term=1, key='mode', value='old')])
+    assert follower.receive(first)[0]['ok']
+    assert follower.receive(first)[0]['ok'] and follower.last == 1
+    repair = dict(first, term=3, request=2, commit=1,
+                  entries=[dict(term=3, key='mode', value='new')])
+    assert follower.receive(repair)[0]['ok']
+    assert follower.log == [dict(term=3, key='mode', value='new')]
+    assert follower.state == {'mode': 'new'} and follower.commit == 1
+    try:
+        follower.receive(dict(repair, term=4, entries=[dict(term=4, key='mode', value='unsafe')]))
+    except ValueError as error:
+        assert str(error) == 'committed prefix conflict'
+    else:
+        raise AssertionError('committed entry overwritten')
+    return dict(bad_prefix_rejected=True, repaired_term=3, state=follower.state)
+
+
+def majority(directory):
+    cluster = Cluster(directory)
+    cluster.timeout('a')
+    cluster.drain()
+    cluster.partition('a', 'bc')
+    cluster.propose('a', 'mode', 'old-term')
+    cluster.drain()
+    assert cluster.nodes['a'].commit == 0
+    # A new election raises the term while retaining the previous uncommitted entry.
+    cluster.blocked.clear()
+    cluster.timeout('a')
+    cluster.drain()
+    assert all(node.last == 1 for node in cluster.nodes.values())
+    assert all(node.commit == 0 for node in cluster.nodes.values())
+    old_term_commit = cluster.nodes['a'].commit
+    cluster.propose('a', 'mode', 'current-term')
+    cluster.drain()
+    assert all(node.commit == 2 and node.state == {'mode': 'current-term'}
+               for node in cluster.nodes.values())
+    unknown = dict(src='not-a-member', dst='a', kind='ack', term=2, request=999, ok=True, matched=999)
+    try:
+        cluster.nodes['a'].receive(unknown)
+    except ValueError:
+        pass
+    else:
+        raise AssertionError('unknown peer accepted')
+    return dict(old_term_commit=old_term_commit, current_term_commit=2,
+                durable_lengths=[Node(n, cluster.members, directory).last for n in cluster.members])
+
+def freshness(directory):
+    cluster = Cluster(directory)
+    cluster.timeout('a')
+    cluster.drain()
+    cluster.partition('c', 'ab')
+    cluster.propose('a', 'mode', 'committed')
+    cluster.drain()
+    assert cluster.nodes['a'].commit == cluster.nodes['b'].commit == 1
+    cluster.blocked.clear()
+    cluster.timeout('c')
+    cluster.drain()
+    assert cluster.nodes['c'].role == 'candidate'
+    assert cluster.nodes['c'].votes == {'c'}
+    cluster.timeout('b')
+    cluster.drain()
+    assert cluster.nodes['b'].role == 'leader'
+    cluster.propose('b', 'next', 'kept')
+    cluster.drain()
+    assert all(node.state == {'mode': 'committed', 'next': 'kept'} for node in cluster.nodes.values())
+    return dict(stale_candidate_votes=1, winner='b', preserved='committed')
+
+def crashes(directory):
+    outcomes = {}
+    for action in ('vote', 'append', 'commit'):
+        for fault, expected_code in [('before_replace', 71), ('after_replace', 72), ('after_directory_sync', 73)]:
+            case = directory / (action + '-' + fault)
+            case.mkdir()
+            node = Node('a', ('a', 'b', 'c'), case)
+            node.term = 1
+            node.role = 'leader'
+            node.match = dict(a=0, b=0, c=0)
+            node.next = dict(a=1, b=1, c=1)
+            node.persist()
+            if action == 'commit':
+                node.append('mode', 'saved')
+            worker = """import sys
+from pathlib import Path
+from labs.consensus.raft.model import Node
+n=Node('a',('a','b','c'),Path(sys.argv[1]))
+n.fault=sys.argv[3]
+action=sys.argv[2]
+if action=='vote': n.campaign()
+elif action=='append':
+ n.role='leader'; n.match=dict(a=0,b=0,c=0); n.next=dict(a=1,b=1,c=1); n.append('mode','saved')
+elif action=='commit': n.apply(1)
+"""
+            killed = subprocess.run([sys.executable, '-c', worker, str(case), action, fault], timeout=10)
+            assert killed.returncode == expected_code
+            recovered = Node('a', ('a', 'b', 'c'), case)
+            published = fault != 'before_replace'
+            if action == 'vote':
+                assert recovered.term == (2 if published else 1)
+                assert recovered.vote == ('a' if published else None)
+            if action == 'append':
+                assert recovered.last == (1 if published else 0)
+                assert recovered.state == {}
+            if action == 'commit':
+                assert recovered.commit == (1 if published else 0)
+                assert recovered.state == ({'mode': 'saved'} if published else {})
+            outcomes[action + ':' + fault] = dict(exit=killed.returncode, commit=recovered.commit)
+    return outcomes
 
 def faults(directory):
     cluster = Cluster(directory)
@@ -301,27 +445,39 @@ def faults(directory):
     return dict(final_commit=2, state=cluster.nodes['a'].state, delivered=len(cluster.trace),
                 dropped=sum(item['dropped'] for item in cluster.trace))
 
-
-def run(version=6):
-    if version != 6:
-        raise ValueError('this checkpoint runs version 6')
+def run_all():
+    results = {}
     with TemporaryDirectory() as folder:
-        return faults(Path(folder))
+        case = Path(folder) / "state_machine"
+        case.mkdir()
+        results["state_machine"] = state_machine(case)
+        case = Path(folder) / "election"
+        case.mkdir()
+        results["election"] = election(case)
+        case = Path(folder) / "prefix_repair"
+        case.mkdir()
+        results["prefix_repair"] = prefix_repair(case)
+        case = Path(folder) / "majority"
+        case.mkdir()
+        results["majority"] = majority(case)
+        case = Path(folder) / "freshness"
+        case.mkdir()
+        results["freshness"] = freshness(case)
+        case = Path(folder) / "crashes"
+        case.mkdir()
+        results["crashes"] = crashes(case)
+        case = Path(folder) / "faults"
+        case.mkdir()
+        results["faults"] = faults(case)
+    return results
 
 
-if __name__ == '__main__':
-    print(json.dumps(run(), sort_keys=True))
+if __name__ == "__main__":
+    print(json.dumps(run_all(), sort_keys=True))
 ```
-
-## 检查点
-
-在空目录中创建上述文件后运行：
 
 ```bash
-python -m labs.consensus.raft.advanced_experiments
+uv run python -m labs.consensus.raft.experiments
 ```
 
-输出来自场景断言后的实际节点状态；不变量不成立会使进程失败。
-
-这是一条固定成员教学链。它没有动态成员变更、联合共识、线性一致读协议或生产性能保证。验证通过后冻结本版代码，再进入下一版；测试通过不等于算法证明。
-
+先提交 stable=yes，隔离 a 后它的 orphan 不能提交。b/c 提交 successor；网络恢复后即使消息重复/倒序/丢失，最终三节点 commit=2、stable=yes、mode=successor，a 已退位。输出的 dropped 是真实故障数量。

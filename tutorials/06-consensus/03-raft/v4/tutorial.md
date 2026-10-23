@@ -1,14 +1,16 @@
-# C03 v4：阻止落后候选人赢得选举
+# C03 v4：拒绝日志落后的候选人
 
-a 和 b 已提交配置，c 在分区中遗漏了它。c 增加任期请求投票时，a 和 b 不能仅因为它的任期更大就支持它，否则可能丢掉已提交记录。比较最后日志任期，再比较绝对索引；c 只获得自己的票，随后完整的 b 当选并继续写入。
+v3 的多数提交还不够：a/b 已提交的记录可能没有到 c。若只按 term/vote 选举，空日志的 c 仍能当选，接下来会碰到 committed prefix conflict。本版增加 RequestVote 的日志新旧比较，使这个候选人拿不到多数票。
 
-新任期仍会让旧领导者退位，即使投票因日志落后被拒绝。任期更新和选票更新必须先持久化再回复。本版重点是选举安全，不包含动态成员变更。
+前置：[v3](../v3/tutorial.md) 的实际代码。
 
-## 从失败轨迹到实现
+## 1. 拒绝日志落后的候选人
 
-先阅读 experiments 中的场景输入与断言，再回到 Node 的状态转换。每次 receive 都由实际消息触发；持久化成功后才产生成功响应。完成这一版后，下面的整份 checkpoint 是下一版的可运行基线。
+campaign 在投票请求中增加 last/last_term；receive 先比较 (last_term,last)，通过后才执行原先的一任期一票规则。比较是字典序，最后一条的任期优先于长度。term 高只说明选举较新，不说明日志更新。其余复制、commit 和磁盘格式保持 v3 的规则。
 
-<!-- checkpoint: labs/consensus/raft/advanced.py -->
+下面是本版的完整 `model.py` checkpoint；替换上一版同名文件，不创建 advanced.py。
+
+<!-- checkpoint: labs/consensus/raft/model.py -->
 
 ```python
 from __future__ import annotations
@@ -29,47 +31,37 @@ class Node:
         self.term = saved.get('term', 0)
         self.vote = saved.get('vote')
         self.log = saved.get('log', [])
-        self.base = saved.get('base', 0)
-        self.base_term = saved.get('base_term', 0)
-        self.snapshot_state = saved.get('snapshot_state', {})
         self.commit = saved.get('commit', 0)
-        self.state = dict(self.snapshot_state)
-        for entry in self.log[:self.commit - self.base]:
+        self.state = {}
+        for entry in self.log[:self.commit]:
             self.state[entry['key']] = entry['value']
         self.role, self.votes = 'follower', set()
         self.match, self.next, self.pending = {}, {}, {}
         self.serial = 0
-        self.fault = None
 
     @property
     def last(self):
-        return self.base + len(self.log)
+        return len(self.log)
 
     def term_at(self, index):
-        if index == self.base:
-            return self.base_term
-        return self.log[index - self.base - 1]['term']
+        if index == 0:
+            return 0
+        return self.log[index - 1]['term']
 
     def persist(self):
         payload = {key: getattr(self, key) for key in
-                   ('term', 'vote', 'log', 'base', 'base_term', 'snapshot_state', 'commit')}
+                   ('term', 'vote', 'log', 'commit')}
         temporary = self.path.with_suffix('.tmp')
         with temporary.open('w') as stream:
             json.dump(payload, stream)
             stream.flush()
             os.fsync(stream.fileno())
-        if self.fault == 'before_replace':
-            os._exit(71)
         os.replace(temporary, self.path)
-        if self.fault == 'after_replace':
-            os._exit(72)
         fd = os.open(self.path.parent, os.O_RDONLY | os.O_DIRECTORY)
         try:
             os.fsync(fd)
         finally:
             os.close(fd)
-        if self.fault == 'after_directory_sync':
-            os._exit(73)
 
     def message(self, peer, kind, **fields):
         return dict(src=self.name, dst=peer, kind=kind, term=self.term, **fields)
@@ -96,13 +88,10 @@ class Node:
         self.serial += 1
         self.pending[peer] = self.serial
         position = self.next[peer]
-        if position <= self.base:
-            return self.message(peer, 'snapshot', request=self.serial, base=self.base,
-                                base_term=self.base_term, state=dict(self.snapshot_state))
         previous = position - 1
         return self.message(peer, 'append', request=self.serial, previous=previous,
                             previous_term=self.term_at(previous),
-                            entries=copy.deepcopy(self.log[position - self.base - 1:]),
+                            entries=copy.deepcopy(self.log[position - 1:]),
                             commit=self.commit)
 
     def apply(self, index):
@@ -113,17 +102,8 @@ class Node:
         old, self.commit = self.commit, index
         self.persist()
         for position in range(old + 1, index + 1):
-            entry = self.log[position - self.base - 1]
+            entry = self.log[position - 1]
             self.state[entry['key']] = entry['value']
-
-    def compact(self):
-        if self.commit <= self.base:
-            return
-        term = self.term_at(self.commit)
-        self.log = self.log[self.commit - self.base:]
-        self.base, self.base_term = self.commit, term
-        self.snapshot_state = dict(self.state)
-        self.persist()
 
     def receive(self, message):
         source, kind, term = message['src'], message['kind'], message['term']
@@ -133,7 +113,7 @@ class Node:
             self.term, self.vote, self.role = term, None, 'follower'
             self.persist()
         if term < self.term:
-            if kind in ('append', 'snapshot'):
+            if kind == 'append':
                 return [self.message(source, 'ack', request=message['request'], ok=False, matched=0)]
             if kind == 'vote':
                 return [self.message(source, 'voted', granted=False)]
@@ -156,28 +136,16 @@ class Node:
             self.match[self.name] = self.last
             self.next = {name: self.last + 1 for name in self.members}
             return self.broadcast()
-        if kind == 'snapshot':
-            self.role = 'follower'
-            if message['base'] > self.commit:
-                index = message['base']
-                keep = index <= self.last and self.term_at(index) == message['base_term']
-                self.log = self.log[index - self.base:] if keep else []
-                self.base, self.base_term = index, message['base_term']
-                self.snapshot_state = dict(message['state'])
-                self.commit, self.state = index, dict(message['state'])
-                self.persist()
-            return [self.message(source, 'ack', request=message['request'],
-                                 ok=True, matched=message['base'])]
         if kind == 'append':
             self.role = 'follower'
             previous = message['previous']
-            if not self.base <= previous <= self.last or self.term_at(previous) != message['previous_term']:
+            if not 0 <= previous <= self.last or self.term_at(previous) != message['previous_term']:
                 return [self.message(source, 'ack', request=message['request'], ok=False, matched=0)]
             for offset, entry in enumerate(message['entries'], previous + 1):
                 if offset <= self.last and self.term_at(offset) != entry['term']:
                     if offset <= self.commit:
                         raise ValueError('committed prefix conflict')
-                    del self.log[offset - self.base - 1:]
+                    del self.log[offset - 1:]
                 if offset > self.last:
                     self.log.append(dict(entry))
             self.persist()
@@ -233,24 +201,24 @@ class Cluster:
     def propose(self, name, key, value):
         self.queue.extend(self.nodes[name].append(key, value))
 
-    def deliver(self, position=0, drop=False):
-        message = self.queue.pop(position)
-        lost = drop or (message['src'], message['dst']) in self.blocked
+    def deliver(self):
+        message = self.queue.pop(0)
+        lost = (message['src'], message['dst']) in self.blocked
         self.trace.append(dict(message, dropped=lost))
         if not lost:
             node = self.nodes[message['dst']]
-            valid_contact = message['kind'] in ('append', 'snapshot') and message['term'] >= node.term
+            valid_contact = message['kind'] == 'append' and message['term'] >= node.term
             responses = node.receive(message)
             vote_granted = message['kind'] == 'vote' and responses[0]['granted']
             if valid_contact or vote_granted:
                 self.deadline[node.name] = self.now + 10 + self.members.index(node.name)
             self.queue.extend(responses)
 
-    def drain(self, limit=1000, reverse=False):
+    def drain(self, limit=1000):
         for _ in range(limit):
             if not self.queue:
                 return
-            self.deliver(-1 if reverse else 0)
+            self.deliver()
         raise RuntimeError('message budget exceeded')
 
     def restart(self, name):
@@ -258,19 +226,126 @@ class Cluster:
         self.deadline[name] = self.now + 10 + self.members.index(name)
 ```
 
-<!-- checkpoint: labs/consensus/raft/advanced_experiments.py -->
+## 2. 运行本版检查并保留旧行为
+
+替换 `labs/consensus/raft/experiments.py`。各检查使用单独临时目录，数据和故障互不污染。
+
+<!-- checkpoint: labs/consensus/raft/experiments.py -->
 
 ```python
-from __future__ import annotations
-
+from pathlib import Path
+from tempfile import TemporaryDirectory
 import copy
 import json
 import subprocess
 import sys
-from pathlib import Path
-from tempfile import TemporaryDirectory
-from .advanced import Cluster, Node
 
+from .model import Node, Cluster
+
+def state_machine(directory):
+    cluster = Cluster(directory)
+    cluster.timeout('a')
+    cluster.drain()
+    node = cluster.nodes['a']
+    node.append('mode', 'safe')
+    # Direct local apply checks the state machine; it is not a client commit API.
+    assert node.state == {} and node.commit == 0
+    node.apply(1)
+    node.apply(1)
+    assert node.state == {'mode': 'safe'} and node.commit == 1
+    try:
+        node.apply(2)
+    except ValueError:
+        pass
+    else:
+        raise AssertionError('committed beyond log')
+    return dict(commit_index=node.commit, state=node.state)
+
+
+def election(directory):
+    cluster = Cluster(directory)
+    cluster.deadline = {name: 10 for name in cluster.members}
+    cluster.tick(10)
+    cluster.drain()
+    assert all(node.role == 'candidate' for node in cluster.nodes.values())
+    assert {node.term for node in cluster.nodes.values()} == {1}
+    cluster.deadline = dict(a=20, b=21, c=22)
+    cluster.tick(20)
+    cluster.drain()
+    assert cluster.nodes['a'].role == 'leader'
+    cluster.restart('b')
+    assert cluster.nodes['b'].vote == 'a'
+    reply = cluster.nodes['b'].receive(dict(src='c', dst='b', kind='vote', term=2, last=0, last_term=0))
+    assert not reply[0]['granted']
+    worker = """import os,sys
+from pathlib import Path
+from labs.consensus.raft.model import Node
+n=Node('b',('a','b','c'),Path(sys.argv[1]))
+assert n.vote=='a' and n.term==2
+assert not n.receive(dict(src='c',kind='vote',term=2,last=0,last_term=0))[0]['granted']
+os._exit(74)
+"""
+    crashed = subprocess.run([sys.executable, '-c', worker, str(directory)], timeout=10)
+    assert crashed.returncode == 74
+    cluster.restart('b')
+    assert cluster.nodes['b'].vote == 'a' and cluster.nodes['b'].term == 2
+    return dict(simultaneous_candidates=3, elected_term=2, restart_vote=cluster.nodes['b'].vote,
+                messages=len(cluster.trace), restart_exit=crashed.returncode)
+
+def prefix_repair(directory):
+    cluster = Cluster(directory)
+    cluster.timeout('a')
+    cluster.drain()
+    follower = cluster.nodes['b']
+    bad = dict(src='a', dst='b', kind='append', term=1, request=1,
+               previous=1, previous_term=1, entries=[], commit=0)
+    assert not follower.receive(bad)[0]['ok']
+    first = dict(bad, previous=0, previous_term=0,
+                 entries=[dict(term=1, key='mode', value='old')])
+    assert follower.receive(first)[0]['ok']
+    assert follower.receive(first)[0]['ok'] and follower.last == 1
+    repair = dict(first, term=3, request=2, commit=1,
+                  entries=[dict(term=3, key='mode', value='new')])
+    assert follower.receive(repair)[0]['ok']
+    assert follower.log == [dict(term=3, key='mode', value='new')]
+    assert follower.state == {'mode': 'new'} and follower.commit == 1
+    try:
+        follower.receive(dict(repair, term=4, entries=[dict(term=4, key='mode', value='unsafe')]))
+    except ValueError as error:
+        assert str(error) == 'committed prefix conflict'
+    else:
+        raise AssertionError('committed entry overwritten')
+    return dict(bad_prefix_rejected=True, repaired_term=3, state=follower.state)
+
+
+def majority(directory):
+    cluster = Cluster(directory)
+    cluster.timeout('a')
+    cluster.drain()
+    cluster.partition('a', 'bc')
+    cluster.propose('a', 'mode', 'old-term')
+    cluster.drain()
+    assert cluster.nodes['a'].commit == 0
+    # A new election raises the term while retaining the previous uncommitted entry.
+    cluster.blocked.clear()
+    cluster.timeout('a')
+    cluster.drain()
+    assert all(node.last == 1 for node in cluster.nodes.values())
+    assert all(node.commit == 0 for node in cluster.nodes.values())
+    old_term_commit = cluster.nodes['a'].commit
+    cluster.propose('a', 'mode', 'current-term')
+    cluster.drain()
+    assert all(node.commit == 2 and node.state == {'mode': 'current-term'}
+               for node in cluster.nodes.values())
+    unknown = dict(src='not-a-member', dst='a', kind='ack', term=2, request=999, ok=True, matched=999)
+    try:
+        cluster.nodes['a'].receive(unknown)
+    except ValueError:
+        pass
+    else:
+        raise AssertionError('unknown peer accepted')
+    return dict(old_term_commit=old_term_commit, current_term_commit=2,
+                durable_lengths=[Node(n, cluster.members, directory).last for n in cluster.members])
 
 def freshness(directory):
     cluster = Cluster(directory)
@@ -293,27 +368,33 @@ def freshness(directory):
     assert all(node.state == {'mode': 'committed', 'next': 'kept'} for node in cluster.nodes.values())
     return dict(stale_candidate_votes=1, winner='b', preserved='committed')
 
-
-def run(version=4):
-    if version != 4:
-        raise ValueError('this checkpoint runs version 4')
+def run_all():
+    results = {}
     with TemporaryDirectory() as folder:
-        return freshness(Path(folder))
+        case = Path(folder) / "state_machine"
+        case.mkdir()
+        results["state_machine"] = state_machine(case)
+        case = Path(folder) / "election"
+        case.mkdir()
+        results["election"] = election(case)
+        case = Path(folder) / "prefix_repair"
+        case.mkdir()
+        results["prefix_repair"] = prefix_repair(case)
+        case = Path(folder) / "majority"
+        case.mkdir()
+        results["majority"] = majority(case)
+        case = Path(folder) / "freshness"
+        case.mkdir()
+        results["freshness"] = freshness(case)
+    return results
 
 
-if __name__ == '__main__':
-    print(json.dumps(run(), sort_keys=True))
+if __name__ == "__main__":
+    print(json.dumps(run_all(), sort_keys=True))
 ```
-
-## 检查点
-
-在空目录中创建上述文件后运行：
 
 ```bash
-python -m labs.consensus.raft.advanced_experiments
+uv run python -m labs.consensus.raft.experiments
 ```
 
-输出来自场景断言后的实际节点状态；不变量不成立会使进程失败。
-
-这是一条固定成员教学链。它没有动态成员变更、联合共识、线性一致读协议或生产性能保证。验证通过后冻结本版代码，再进入下一版；测试通过不等于算法证明。
-
+c 错过已提交记录后竞选，只得到自己的票；拥有该记录的 b 可以赢得下一任期并继续提交，最终三节点都保留 mode=committed 与 next=kept。这也检查 v3 规则在合法换主后继续成立。

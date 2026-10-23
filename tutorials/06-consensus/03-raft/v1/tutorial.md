@@ -1,19 +1,20 @@
-# C03 v1：任期、投票与选举计时
+# C03 v1：把任期和投票接到同一节点
 
-三个节点的超时同时发生时，每个候选人先持久化自己的票，结果谁都没有多数。过去只有 request_vote 的示例无法重放这个竞选过程。本版用显式逻辑时钟和消息队列保留顺序：time=10 同时竞选，time=20 仅 a 超时，a 在新任期获得多数。重启后 b 仍记得投给 a，子进程以 os._exit(74) 退出也不能让它给 c 再投一票。
+v0 只回答“哪条命令已应用”。三个节点还需要决定谁接收新命令，重启后也不能在同一任期重复投票。本版增加持久任期/投票和带逻辑时钟的消息队列；日志与 commit 仍属于同一 Node，尚不复制。
 
-本版无日志复制、提交和快照；对等节点属于固定可信成员集合。计时器用确定性的不同 deadline 模拟随机退避的一次采样，不模拟分布式时钟同步。
+前置：[v0](../v0/tutorial.md) 的实际代码。
 
-## 从失败轨迹到实现
+## 1. 把任期和投票接到同一节点
 
-先阅读 experiments 中的场景输入与断言，再回到 Node 的状态转换。每次 receive 都由实际消息触发；持久化成功后才产生成功响应。完成这一版后，下面的整份 checkpoint 是下一版的可运行基线。
+构造从 Node(name) 改为 Node(name, members, directory)，实验调用一并更新；新增条目携带 term，原 key/value 不变。持久文件保存 term、vote、log、commit；role 和收到的票是易失状态，重启回 follower。写临时文件、fsync、原子 replace、fsync 目录之后才答复。Cluster 排队交付 vote/voted，deadline 使用错开的逻辑时刻；同刻竞选会平票，下一轮错开可收敛。本版尚无心跳，不能长时间维持 leader。
 
-<!-- checkpoint: labs/consensus/raft/advanced.py -->
+下面是本版的完整 `model.py` checkpoint；替换上一版同名文件，不创建 advanced.py。
+
+<!-- checkpoint: labs/consensus/raft/model.py -->
 
 ```python
 from __future__ import annotations
 
-import copy
 import json
 import os
 from pathlib import Path
@@ -29,47 +30,35 @@ class Node:
         self.term = saved.get('term', 0)
         self.vote = saved.get('vote')
         self.log = saved.get('log', [])
-        self.base = saved.get('base', 0)
-        self.base_term = saved.get('base_term', 0)
-        self.snapshot_state = saved.get('snapshot_state', {})
         self.commit = saved.get('commit', 0)
-        self.state = dict(self.snapshot_state)
-        for entry in self.log[:self.commit - self.base]:
+        self.state = {}
+        for entry in self.log[:self.commit]:
             self.state[entry['key']] = entry['value']
         self.role, self.votes = 'follower', set()
-        self.match, self.next, self.pending = {}, {}, {}
-        self.serial = 0
-        self.fault = None
 
     @property
     def last(self):
-        return self.base + len(self.log)
+        return len(self.log)
 
     def term_at(self, index):
-        if index == self.base:
-            return self.base_term
-        return self.log[index - self.base - 1]['term']
+        if index == 0:
+            return 0
+        return self.log[index - 1]['term']
 
     def persist(self):
         payload = {key: getattr(self, key) for key in
-                   ('term', 'vote', 'log', 'base', 'base_term', 'snapshot_state', 'commit')}
+                   ('term', 'vote', 'log', 'commit')}
         temporary = self.path.with_suffix('.tmp')
         with temporary.open('w') as stream:
             json.dump(payload, stream)
             stream.flush()
             os.fsync(stream.fileno())
-        if self.fault == 'before_replace':
-            os._exit(71)
         os.replace(temporary, self.path)
-        if self.fault == 'after_replace':
-            os._exit(72)
         fd = os.open(self.path.parent, os.O_RDONLY | os.O_DIRECTORY)
         try:
             os.fsync(fd)
         finally:
             os.close(fd)
-        if self.fault == 'after_directory_sync':
-            os._exit(73)
 
     def message(self, peer, kind, **fields):
         return dict(src=self.name, dst=peer, kind=kind, term=self.term, **fields)
@@ -78,8 +67,26 @@ class Node:
         self.term += 1
         self.vote, self.role, self.votes = self.name, 'candidate', {self.name}
         self.persist()
-        return [self.message(peer, 'vote', last=self.last, last_term=self.term_at(self.last))
+        return [self.message(peer, 'vote')
                 for peer in self.members if peer != self.name]
+
+    def append(self, key, value):
+        if self.role != 'leader':
+            raise ValueError('only elected leader accepts proposals')
+        self.log.append(dict(term=self.term, key=key, value=value))
+        self.persist()
+        return self.last
+
+    def apply(self, index):
+        if index <= self.commit:
+            return
+        if index > self.last:
+            raise ValueError('commit exceeds log')
+        old, self.commit = self.commit, index
+        self.persist()
+        for position in range(old + 1, index + 1):
+            entry = self.log[position - 1]
+            self.state[entry['key']] = entry['value']
 
     def receive(self, message):
         source, kind, term = message['src'], message['kind'], message['term']
@@ -89,14 +96,11 @@ class Node:
             self.term, self.vote, self.role = term, None, 'follower'
             self.persist()
         if term < self.term:
-            if kind in ('append', 'snapshot'):
-                return [self.message(source, 'ack', request=message['request'], ok=False, matched=0)]
             if kind == 'vote':
                 return [self.message(source, 'voted', granted=False)]
             return []
         if kind == 'vote':
-            fresh = (message['last_term'], message['last']) >= (self.term_at(self.last), self.last)
-            granted = fresh and self.vote in (None, source)
+            granted = self.vote in (None, source)
             if granted:
                 self.vote = source
                 self.persist()
@@ -108,9 +112,6 @@ class Node:
             if len(self.votes) <= len(self.members) // 2:
                 return []
             self.role = 'leader'
-            self.match = {name: 0 for name in self.members}
-            self.match[self.name] = self.last
-            self.next = {name: self.last + 1 for name in self.members}
             return []
         raise ValueError('unknown message')
 
@@ -141,24 +142,23 @@ class Cluster:
         self.deadline[name] = self.now + 10 + self.members.index(name)
         self.queue.extend(self.nodes[name].campaign())
 
-    def deliver(self, position=0, drop=False):
-        message = self.queue.pop(position)
-        lost = drop or (message['src'], message['dst']) in self.blocked
+    def deliver(self):
+        message = self.queue.pop(0)
+        lost = (message['src'], message['dst']) in self.blocked
         self.trace.append(dict(message, dropped=lost))
         if not lost:
             node = self.nodes[message['dst']]
-            valid_contact = message['kind'] in ('append', 'snapshot') and message['term'] >= node.term
             responses = node.receive(message)
             vote_granted = message['kind'] == 'vote' and responses[0]['granted']
-            if valid_contact or vote_granted:
+            if vote_granted:
                 self.deadline[node.name] = self.now + 10 + self.members.index(node.name)
             self.queue.extend(responses)
 
-    def drain(self, limit=1000, reverse=False):
+    def drain(self, limit=1000):
         for _ in range(limit):
             if not self.queue:
                 return
-            self.deliver(-1 if reverse else 0)
+            self.deliver()
         raise RuntimeError('message budget exceeded')
 
     def restart(self, name):
@@ -166,18 +166,40 @@ class Cluster:
         self.deadline[name] = self.now + 10 + self.members.index(name)
 ```
 
-<!-- checkpoint: labs/consensus/raft/advanced_experiments.py -->
+## 2. 运行本版检查并保留旧行为
+
+替换 `labs/consensus/raft/experiments.py`。各检查使用单独临时目录，数据和故障互不污染。
+
+<!-- checkpoint: labs/consensus/raft/experiments.py -->
 
 ```python
-from __future__ import annotations
-
+from pathlib import Path
+from tempfile import TemporaryDirectory
 import copy
 import json
 import subprocess
 import sys
-from pathlib import Path
-from tempfile import TemporaryDirectory
-from .advanced import Cluster, Node
+
+from .model import Node, Cluster
+
+def state_machine(directory):
+    cluster = Cluster(directory)
+    cluster.timeout('a')
+    cluster.drain()
+    node = cluster.nodes['a']
+    node.append('mode', 'safe')
+    # Direct local apply checks the state machine; it is not a client commit API.
+    assert node.state == {} and node.commit == 0
+    node.apply(1)
+    node.apply(1)
+    assert node.state == {'mode': 'safe'} and node.commit == 1
+    try:
+        node.apply(2)
+    except ValueError:
+        pass
+    else:
+        raise AssertionError('committed beyond log')
+    return dict(commit_index=node.commit, state=node.state)
 
 
 def election(directory):
@@ -197,7 +219,7 @@ def election(directory):
     assert not reply[0]['granted']
     worker = """import os,sys
 from pathlib import Path
-from labs.consensus.raft.advanced import Node
+from labs.consensus.raft.model import Node
 n=Node('b',('a','b','c'),Path(sys.argv[1]))
 assert n.vote=='a' and n.term==2
 assert not n.receive(dict(src='c',kind='vote',term=2,last=0,last_term=0))[0]['granted']
@@ -210,27 +232,24 @@ os._exit(74)
     return dict(simultaneous_candidates=3, elected_term=2, restart_vote=cluster.nodes['b'].vote,
                 messages=len(cluster.trace), restart_exit=crashed.returncode)
 
-
-def run(version=1):
-    if version != 1:
-        raise ValueError('this checkpoint runs version 1')
+def run_all():
+    results = {}
     with TemporaryDirectory() as folder:
-        return election(Path(folder))
+        case = Path(folder) / "state_machine"
+        case.mkdir()
+        results["state_machine"] = state_machine(case)
+        case = Path(folder) / "election"
+        case.mkdir()
+        results["election"] = election(case)
+    return results
 
 
-if __name__ == '__main__':
-    print(json.dumps(run(), sort_keys=True))
+if __name__ == "__main__":
+    print(json.dumps(run_all(), sort_keys=True))
 ```
-
-## 检查点
-
-在空目录中创建上述文件后运行：
 
 ```bash
-python -m labs.consensus.raft.advanced_experiments
+uv run python -m labs.consensus.raft.experiments
 ```
 
-输出来自场景断言后的实际节点状态；不变量不成立会使进程失败。
-
-这是一条固定成员教学链。它没有动态成员变更、联合共识、线性一致读协议或生产性能保证。验证通过后冻结本版代码，再进入下一版；测试通过不等于算法证明。
-
+保留本地状态机检查，再让三个节点同刻竞选而平票；错开下一次期限后 a 在 term2 当选。b 进程退出后仍保存投给 a 的票，拒绝同任期给 c 投票。下一版把日志加入消息路径。

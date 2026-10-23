@@ -1,55 +1,89 @@
-# C03 v0：单节点日志驱动状态机
+# C03 v0：日志追加与状态机提交分开
 
-场景是一个配置状态机。命令先进入带任期和索引的日志，只有提交后才按顺序应用。压力来自“追加不等于完成”：未提交记录不能改变状态机。
+客户端设置 mode=safe，节点收到了命令，但还没决定它是否生效。如果 append 直接改 state，未提交内容会暴露给调用者。先压缩成一个节点、一条有序日志和一个字典状态机，不引入网络或选举。
 
-运行：`uv run pytest tests/consensus/raft/test_c03.py -q`。检查 `commit_index == 1` 且状态为 `{"mode": "safe"}`。
+## 1. 日志追加与状态机提交分开
 
-本版冻结范围是 `labs/consensus/raft/model.py` 的 `Entry`、`Node.append_command`、`Node.commit_to`。提交索引只能前进到已有日志，应用索引逐条前进；v1 才加入持久任期和投票。
+`log` 按追加顺序保存命令，`commit` 表示已应用的连续前缀长度；`state` 只由 `apply` 更新。重复 apply 同一位置不重复应用，越过日志末尾被拒绝。append 返回的位置从 1 开始，与 Python 列表下标相差 1。
+
+下面是本版的完整 `model.py` checkpoint；替换上一版同名文件，不创建 advanced.py。
 
 <!-- checkpoint: labs/consensus/raft/model.py -->
+
 ```python
-from dataclasses import dataclass
-
-@dataclass(frozen=True)
-class Entry:
-    term: int
-    index: int
-    command: dict[str, str]
-
 class Node:
-    def __init__(self) -> None:
-        self.current_term = 0
-        self.log: list[Entry] = []
-        self.commit_index = 0
-        self.last_applied = 0
-        self.state: dict[str, str] = {}
+    def __init__(self, name):
+        self.name = name
+        self.log = []
+        self.commit = 0
+        self.state = {}
 
-    def append_command(self, command: dict[str, str]) -> Entry:
-        entry = Entry(self.current_term, len(self.log) + 1, dict(command))
-        self.log.append(entry)
-        return entry
+    @property
+    def last(self):
+        return len(self.log)
 
-    def commit_to(self, index: int) -> None:
-        if index < self.commit_index or index > len(self.log):
-            raise ValueError("commit index must advance within the log")
-        self.commit_index = index
-        while self.last_applied < self.commit_index:
-            entry = self.log[self.last_applied]
-            if set(entry.command) != {"key", "value"}:
-                raise ValueError("unsupported command")
-            self.state[entry.command["key"]] = entry.command["value"]
-            self.last_applied += 1
+    def append(self, key, value):
+        self.log.append(dict(key=key, value=value))
+        return self.last
+
+    def apply(self, index):
+        if index <= self.commit:
+            return
+        if index > self.last:
+            raise ValueError('commit exceeds log')
+        for position in range(self.commit + 1, index + 1):
+            entry = self.log[position - 1]
+            self.state[entry['key']] = entry['value']
+        self.commit = index
 ```
+
+## 2. 运行本版检查并保留旧行为
+
+替换 `labs/consensus/raft/experiments.py`。各检查使用单独临时目录，数据和故障互不污染。
 
 <!-- checkpoint: labs/consensus/raft/experiments.py -->
+
 ```python
+from pathlib import Path
+from tempfile import TemporaryDirectory
+import copy
 import json
+import subprocess
+import sys
+
 from .model import Node
 
-node = Node()
-node.current_term = 1
-node.append_command({"key": "mode", "value": "safe"})
-node.commit_to(1)
-assert node.state == {"mode": "safe"}
-print(json.dumps({"commit_index": node.commit_index, "state": node.state}))
+def state_machine(directory):
+    node = Node('single')
+    node.append('mode', 'safe')
+    assert node.state == {} and node.commit == 0
+    node.apply(1)
+    node.apply(1)
+    assert node.state == {'mode': 'safe'} and node.commit == 1
+    try:
+        node.apply(2)
+    except ValueError:
+        pass
+    else:
+        raise AssertionError('committed beyond log')
+    return dict(commit_index=node.commit, state=node.state)
+
+
+def run_all():
+    results = {}
+    with TemporaryDirectory() as folder:
+        case = Path(folder) / "state_machine"
+        case.mkdir()
+        results["state_machine"] = state_machine(case)
+    return results
+
+
+if __name__ == "__main__":
+    print(json.dumps(run_all(), sort_keys=True))
 ```
+
+```bash
+uv run python -m labs.consensus.raft.experiments
+```
+
+追加后 state={}、commit=0；apply(1) 后 mode=safe，重复应用不变，apply(2) 拒绝。此检查点尚无持久化，下一版加入选举。

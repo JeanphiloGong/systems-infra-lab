@@ -1,13 +1,11 @@
-# C03 v0: one log drives one state machine
+# C03 v0 实施计划：日志追加与状态机提交分开
 
-Scenario: a node appends one command and applies only committed contiguous entries.
+客户端设置 mode=safe，节点收到了命令，但还没决定它是否生效。如果 append 直接改 state，未提交内容会暴露给调用者。先压缩成一个节点、一条有序日志和一个字典状态机，不引入网络或选举。
 
-Pressure/change: freeze `model.py` and `experiments.py` with one safe entry, commit index advancement, and state-machine application.
+依赖：Python 3.12；空练习目录。
 
-Checkpoint: replay output is exactly `commit_index=1` and `state={'mode': 'safe'}`; the source must not contain persistence or `append_entries` yet.
+1. 在 `labs/consensus/raft/model.py` 实施：`log` 按追加顺序保存命令，`commit` 表示已应用的连续前缀长度；`state` 只由 `apply` 更新。重复 apply 同一位置不重复应用，越过日志末尾被拒绝。append 返回的位置从 1 开始，与 Python 列表下标相差 1。
+2. `experiments.py` 保留已出现的检查并加入本版日程。验收：追加后 state={}、commit=0；apply(1) 后 mode=safe，重复应用不变，apply(2) 拒绝。此检查点尚无持久化，下一版加入选举。
+3. 从仓库根运行 `uv run python -m labs.consensus.raft.experiments`；完整文件见 [正文](tutorial.md)。
 
-Limit/next: single node, no terms, votes, replication, or crash recovery. v1 adds elections and durable term/vote state.
-
-Replay: `uv run python tests/consensus/raft/replay_c03.py --version 0`.
-
-**Naive:** apply an appended command immediately. **Break:** uncommitted state changes are visible. **Change:** advance commit index and apply contiguous entries only. **Check:** exact commit/state output and no persistence/AppendEntries. **Freeze:** model and experiment fences. **Limit/Still-lacks:** single node, no election or crash recovery. **Next:** v1 adds terms and votes.
+范围：一个协议规则或验证能力的增量；不会提前放入后续快照与故障机制。

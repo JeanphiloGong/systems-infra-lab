@@ -1,15 +1,11 @@
-# C03 v6: queued network faults
+# C03 v6 实施计划：控制消息丢失、重复和倒序
 
-Scenario: a three-node cluster loses, duplicates, and reorders AppendEntries and votes while one leader is partitioned.
+v5 的持久化检查不覆盖迟到响应。旧 leader 被隔离后产生未提交后缀，剩下多数提交不同后缀，再恢复通信并重复、倒序、丢弃消息。目标是所有节点最后保留已提交前缀并接受新 leader 的后缀。
 
-Pressure/change: route messages through a deterministic queue, replay selected drops/duplicates/reordering, and retain prefix repair plus quorum commit.
+依赖：v5 的 model.py/experiments.py。
 
-Checkpoint: at least one message is dropped; final `commit=2`, state is `{'stable': 'yes', 'mode': 'successor'}`, and the old leader becomes follower.
+1. 在 `labs/consensus/raft/model.py` 实施：核心 Node 不变。Cluster.deliver 新增 position/drop，drain 新增 reverse；原来的 term、pending 和 committed-prefix 规则要承受新日程。丢包后必须再显式 broadcast 才保证有新尝试；模型不承诺无限丢包下仍可用。故障 trace 记录每条投递是否被丢弃，计数来自实际队列。
+2. `experiments.py` 保留已出现的检查并加入本版日程。验收：先提交 stable=yes，隔离 a 后它的 orphan 不能提交。b/c 提交 successor；网络恢复后即使消息重复/倒序/丢失，最终三节点 commit=2、stable=yes、mode=successor，a 已退位。输出的 dropped 是真实故障数量。
+3. 从仓库根运行 `uv run python -m labs.consensus.raft.experiments`；完整文件见 [正文](tutorial.md)。
 
-Limit/next: queue faults are deterministic and in-process, with fixed membership. v7 adds snapshot compaction for a lagging follower.
-
-Freeze artifact: the exact historical fences are retained at `labs/consensus/raft/checkpoints/v6/advanced.py` and `advanced_experiments.py` for parity comparison.
-
-Replay: `uv run python tests/consensus/raft/replay_c03.py --version 6`.
-
-**Naive:** assume reliable ordered delivery. **Break:** drop, duplicate, and reorder messages during a partition. **Change:** deterministic queue fault injection with existing prefix repair/quorum commit. **Check:** dropped count positive, final commit 2, successor state, old leader follower. **Freeze:** v6 snapshots named above. **Limit/Still-lacks:** in-process fixed membership. **Next:** v7 snapshots.
+范围：一个协议规则或验证能力的增量；不会提前放入后续快照与故障机制。
