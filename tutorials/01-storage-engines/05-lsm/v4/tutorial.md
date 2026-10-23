@@ -255,8 +255,18 @@ uv sync --locked
 compact_demo_dir=$(mktemp -d)
 uv run python -m labs.storage.lsm.compaction "$compact_demo_dir" --create
 uv run python -m labs.storage.lsm.compaction "$compact_demo_dir"
+```
+
+<details>
+<summary>可选：参考分支验证</summary>
+
+以下命令只在 [reference 的独立工作区](../../../../docs/reference-checks.md) 执行，依赖其中的测试或重放脚本；不属于 main 当前版本的必做步骤。
+
+```bash
 uv run python -m pytest tests/storage/lsm/test_s05_compaction.py -q
 ```
+
+</details>
 
 两个进程均应输出：
 
@@ -266,6 +276,6 @@ full: None None
 keep: new
 ```
 
-partial中逻辑查询缺失，但底层记录仍为delete；full里连记录本身也不存在，逻辑结果依旧缺失。keep的新值一直保留。测试还覆盖全部六种连续区间、更新文件优先级、删除后新put、非法范围、坏tag及拒绝覆盖。
+partial中逻辑查询缺失，但底层记录仍为delete；full里连记录本身也不存在，逻辑结果依旧缺失。keep的新值一直保留。参考分支的历史测试还覆盖全部六种连续区间、更新文件优先级、删除后新put、非法范围、坏tag及拒绝覆盖。
 
 本版不清理旧文件，也没有并发读取者跟踪或WAL；实验结束后可以清理本次临时目录。冻结的是合并语义与删除标记安全边界，下一版再讨论如何把新的文件集合可靠地发布。

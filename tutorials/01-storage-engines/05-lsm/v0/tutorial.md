@@ -72,9 +72,19 @@ if __name__ == "__main__":
 
 ```bash
 uv run python -m labs.storage.lsm.memtable
+```
+
+<details>
+<summary>可选：参考分支验证</summary>
+
+以下命令只在 [reference 的独立工作区](../../../../docs/reference-checks.md) 执行，依赖其中的测试或重放脚本；不属于 main 当前版本的必做步骤。
+
+```bash
 uv run python -m pytest tests/storage/lsm/test_s05_memtable.py -q
 ```
 
-第一条输出排序后的a/first、z/new，然后fresh instance: None。单独再次执行程序仍从空映射开始；不存在隐含持久化。测试还会先取items，再put另一键，确认原快照不被修改。
+</details>
+
+第一条输出排序后的a/first、z/new，然后fresh instance: None。单独再次执行程序仍从空映射开始；不存在隐含持久化。参考分支的历史测试还会先取items，再put另一键，确认原快照不被修改。
 
 这个版本只能保存进程内最新状态。下一版保持接口含义，把一次排序快照刷成可在新进程打开的不可变文件。

@@ -110,8 +110,18 @@ if __name__ == "__main__":
 sst_demo_dir=$(mktemp -d)
 uv run python -m labs.storage.lsm.sstable "$sst_demo_dir/one.sst" --create
 uv run python -m labs.storage.lsm.sstable "$sst_demo_dir/one.sst"
+```
+
+<details>
+<summary>可选：参考分支验证</summary>
+
+以下命令只在 [reference 的独立工作区](../../../../docs/reference-checks.md) 执行，依赖其中的测试或重放脚本；不属于 main 当前版本的必做步骤。
+
+```bash
 uv run python -m pytest tests/storage/lsm -q
 ```
+
+</details>
 
 前两条都显示[('a','first'),('z','latest')]（Python会显示空格）。第二进程没有创建数据却能读取，说明结果来自文件。第三次加--create应报FileExistsError，原文件内容不变。实验后只删除本次one.sst及其临时目录。
 

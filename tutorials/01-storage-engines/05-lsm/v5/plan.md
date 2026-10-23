@@ -8,16 +8,3 @@
 4. 最后完整三个文件checkpoint，规模M，依赖3。SSTable/TombstoneStore冻结依赖全部打印，CLI --create/--publish/read分开。正文代码隔离重放实际命令序列，检查预期退出码与逻辑集合。
 
 所有任务不提交Git。验证包括空集合、损坏JSON/名称、重复缺失文件、目录外路径、symlink、发布前后故障、新进程重开和正常发布清理。独立review后冻结，无WAL/多写者/垃圾回收。
-
-
-## Tutorial Increment
-
-- **Pressure:** The high-frequency key updates and tombstones scenario makes the current checkpoint insufficient for the v5 requirement.
-- **Naive:** Keep the previous version's simplest behavior and record what it cannot observe or protect.
-- **Break:** v4成功合并后返回一个新的Python文件列表，但进程退出就失去这个列表。扫描目录不能恢复它：旧输入文件仍然存在，目录中也可能有尚未发布的输出文件。我们需要一份明确记录当前读取集合的manifest，而不是根据文件名猜测。 本版限定本地POSIX文件系统、单个发布者、发布期间不修改/删除的不可变SSTable。manifest是按新到旧排列的JSON文件名数组，读取者只采用它列出的文件。数据格式沿用v3，不增加WAL或后台合并。
-- **Change:** # S05 v5：重启后应该采用哪个文件集合？; implement only the behavior introduced by this version and retain the previous checkpoint contract.
-- **Check:** Extract the complete source fence and run `uv run pytest tests/storage/lsm -q`; assert the version-specific result from the tutorial instead of checking only that the process exits.
-- **Freeze:** Freeze the source fence, its caller, and the expected assertion together; the replay must run from a fresh temporary directory.
-- **Still-lacks:** This remains a S05 LSM/compaction teaching model for high-frequency key updates and tombstones; it does not claim production durability, concurrency, or distributed behavior beyond the stated experiment.
-- **Next:** Continue with v6 of S05 LSM/compaction, carrying forward the state and invariant rather than restarting from a disconnected example.
-

@@ -143,8 +143,18 @@ if __name__ == "__main__":
 lsm_demo_dir=$(mktemp -d)
 uv run python -m labs.storage.lsm.versions "$lsm_demo_dir" --create
 uv run python -m labs.storage.lsm.versions "$lsm_demo_dir"
+```
+
+<details>
+<summary>可选：参考分支验证</summary>
+
+以下命令只在 [reference 的独立工作区](../../../../docs/reference-checks.md) 执行，依赖其中的测试或重放脚本；不属于 main 当前版本的必做步骤。
+
+```bash
 uv run python -m pytest tests/storage/lsm/test_s05_versions.py -q
 ```
+
+</details>
 
 两个进程均输出['new', 'yes', '', None]。为了检查优先级，将main中的[new, old]临时改成[old, new]，在同一目录无--create运行，应得到['old', 'yes', 'old', None]；再改回。
 

@@ -1,16 +1,10 @@
-# S05 v6 plan
+# S05 v6 实施计划
 
-Add two durability/read boundaries to the frozen LSM model: framed, checksummed WAL records replay after restart, and a Bloom filter can reject definite misses before opening an SSTable. The checkpoint deliberately uses a small standalone model; it does not claim crash durability beyond the local fsync steps.
+依赖 S05 v5 的 SSTable/标签/MANIFEST，S03 v1 的 framing 和 S04 v3 的 ImmutableTable。
 
+1. 新建 wal.py：append 同步成功才返回，replay 先验证全部帧与业务字段，只对不完整尾部 truncate+fsync。长度/反码或 CRC 损坏必须报错且不改原文件。
+2. 新建 v6.py/RecoveredStore：初始化只读取 MANIFEST 指定文件，再 WAL 回放；put 先日志后内存，get 先内存再 Bloom/SSTable，删除直接终止搜索。
+3. flush 先创建 SSTable，再 publish，最后清 WAL；失败实例停写。check_v6.py 在三个边界 os._exit，重开验证删除不复活、新值和旧稳定键都保留。
+4. 执行 `uv run python -m labs.storage.lsm.check_v6`。验收包含任意字符串/空值的新进程读取、三类损坏不截断、真正尾帧截断与 100 个负查询扫描数低于全查。冻结集成恢复链，合并策略留 v7。
 
-## Tutorial Increment
-
-- **Pressure:** The high-frequency key updates and tombstones scenario makes the current checkpoint insufficient for the v6 requirement.
-- **Naive:** Keep the previous version's simplest behavior and record what it cannot observe or protect.
-- **Break:** An acknowledged update must survive a process restart, while a missing key should not force an SSTable scan. The small model below writes length-prefixed JSON records with a checksum, replays complete records, truncates a torn suffix, and uses a Bloom filter o
-- **Change:** # S05 v6: WAL recovery and Bloom negative reads; implement only the behavior introduced by this version and retain the previous checkpoint contract.
-- **Check:** Extract the complete source fence and run `uv run pytest tests/storage/lsm -q`; assert the version-specific result from the tutorial instead of checking only that the process exits.
-- **Freeze:** Freeze the source fence, its caller, and the expected assertion together; the replay must run from a fresh temporary directory.
-- **Still-lacks:** This remains a S05 LSM/compaction teaching model for high-frequency key updates and tombstones; it does not claim production durability, concurrency, or distributed behavior beyond the stated experiment.
-- **Next:** Continue with v7 of S05 LSM/compaction, carrying forward the state and invariant rather than restarting from a disconnected example.
-
+完整代码与检查见 [正文](tutorial.md)。

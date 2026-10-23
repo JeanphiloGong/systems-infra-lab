@@ -179,8 +179,18 @@ if __name__ == "__main__":
 lsm_demo_dir=$(mktemp -d)
 uv run python -m labs.storage.lsm.tombstones "$lsm_demo_dir" --create
 uv run python -m labs.storage.lsm.tombstones "$lsm_demo_dir"
+```
+
+<details>
+<summary>可选：参考分支验证</summary>
+
+以下命令只在 [reference 的独立工作区](../../../../docs/reference-checks.md) 执行，依赖其中的测试或重放脚本；不属于 main 当前版本的必做步骤。
+
+```bash
 uv run python -m pytest tests/storage/lsm/test_s05_versions.py -q
 ```
+
+</details>
 
 两个进程均输出[None, 'yes', '__TOMBSTONE__', '', '["delete"]', None]。k删除保持，keep回退旧文件，三种特殊字符串保留。测试还验证更晚put遮蔽删除和错误tag不能伪装缺失。
 

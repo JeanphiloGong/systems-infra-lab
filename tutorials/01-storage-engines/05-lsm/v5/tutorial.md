@@ -294,11 +294,21 @@ uv run python -m labs.storage.lsm.manifest "$manifest_demo_dir"
 uv run python -m labs.storage.lsm.manifest "$manifest_demo_dir" --publish --crash after_publish
 uv run python -m labs.storage.lsm.manifest "$manifest_demo_dir"
 uv run python -m labs.storage.lsm.manifest "$manifest_demo_dir" --publish
+```
+
+<details>
+<summary>可选：参考分支验证</summary>
+
+以下命令只在 [reference 的独立工作区](../../../../docs/reference-checks.md) 执行，依赖其中的测试或重放脚本；不属于 main 当前版本的必做步骤。
+
+```bash
 uv run python -m pytest tests/storage/lsm/test_s05_manifest.py tests/storage/lsm/test_s05_manifest_replay.py -q
 ```
 
+</details>
+
 故障命令预期分别退出71和72；在启用set -e的脚本里需显式检查这些预期退出码，不能让脚本提前中止而漏掉后续读取。首次创建及71之后输出{"k":"old","stable":"yes"}，72之后及正常发布输出{"k":"new","stable":"yes"}（JSON空格不影响含义）。stable证明新列表仍包含旧文件，不只是测试单一值碰巧相同。
 
-测试同时检查磁盘MANIFEST数组恰好是[old.sst]或[new.sst,old.sst]；格式、重复、缺失及越界路径拒绝；并从正文抽取完整依赖到干净目录，真实退出发布进程，再由另一个进程读取。只有围栏存在或同进程抛RuntimeError不算通过。
+参考分支的历史测试同时检查磁盘MANIFEST数组恰好是[old.sst]或[new.sst,old.sst]；格式、重复、缺失及越界路径拒绝；并从正文抽取完整依赖到干净目录，真实退出发布进程，再由另一个进程读取。只有围栏存在或同进程抛RuntimeError不算通过。
 
 现在冻结单写者发布协议。旧文件暂不回收，故障后的临时文件不参与读取，正常下一次发布可覆盖它。后续WAL/过滤器集成仍需独立实验；不要把manifest等同事务日志。
