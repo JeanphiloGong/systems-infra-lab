@@ -3,14 +3,9 @@
 目标观察容量与尾部延迟边界。使用固定输入和确定路由；每分片计数、总量守恒、热点不因扩容消失，加盐显式分担。完整checkpoint及测试；不宣称真实数据库性能。
 
 
-## Tutorial Increment
+前置：本模块 v2。以下任务依次进行，目标文档为 [tutorial.md](tutorial.md)。
 
-- **Pressure:** The one hot tenant dominating shard traffic scenario makes the current checkpoint insufficient for the v3 requirement.
-- **Naive:** Keep the previous version's simplest behavior and record what it cannot observe or protect.
-- **Break:** 本版使用可重复的离散队列模型测量固定批次的p99、每分片请求量和容量上界。均匀键分布和固定hot键分布都记录每个分片请求量；加盐显式轮转子键，共享dispatcher瓶颈会重新限制容量。 完整 checkpoint `labs/partitioning/skew/skew.py`：
-- **Change:** # P02 v3：观察容量与尾部延迟边界; implement only the behavior introduced by this version and retain the previous checkpoint contract.
-- **Check:** Extract the complete source fence and run `uv run pytest tests/partitioning/skew -q`; assert the version-specific result from the tutorial instead of checking only that the process exits.
-- **Freeze:** Freeze the source fence, its caller, and the expected assertion together; the replay must run from a fresh temporary directory.
-- **Still-lacks:** This remains a P02 skew teaching model for one hot tenant dominating shard traffic; it does not claim production durability, concurrency, or distributed behavior beyond the stated experiment.
-- **Next:** Continue with the module's final boundary, carrying forward the state and invariant rather than restarting from a disconnected example.
+1. queues.py 导入 v2.route，对明确的到达时间与单片 service time 逐次计算排队完成时间，新增 shared_service 表示 dispatcher 串行瓶颈。
+2. 同 1000 个 hot 请求扩 4→8 片时 p99 不变；加盐降低 p99，提高容量；shared_service=1 后容量又受限为 1。检查 32 组输出与断言，所有延迟仅属于离散队列模型。
 
+按正文给出的直接运行命令检查当前代码；reference 中的旧测试仅供对照。

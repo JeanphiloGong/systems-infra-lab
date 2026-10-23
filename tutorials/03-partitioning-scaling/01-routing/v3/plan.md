@@ -13,16 +13,3 @@
 不会增加持久存储、复制或自动搬迁。owner_at 暴露哈希位置到拥有者的查询，
 供 node 和环边界测试调用；无状态修改。正常键哈希冲突可同分片，节点点位冲突明确拒绝。
 同一键无论请求多热仍选同一节点。全部版本独立重放后交审核，不自动提交。
-
-
-## Tutorial Increment
-
-- **Pressure:** The tenant orders routed to shard owners scenario makes the current checkpoint insufficient for the v3 requirement.
-- **Naive:** Keep the previous version's simplest behavior and record what it cannot observe or protect.
-- **Break:** 回看 [v1](../v1/tutorial.md)：1000 个固定键从三个节点扩成四个，简单取模会改变大量归属。 如果每次扩容都搬迁大半数据，网络和磁盘会长时间忙于迁移。本篇保留稳定哈希，改变“如何选节点”。
-- **Change:** # P01 v3：扩容时，只让一部分键换主人; implement only the behavior introduced by this version and retain the previous checkpoint contract.
-- **Check:** Extract the complete source fence and run `uv run pytest tests/partitioning/routing -q`; assert the version-specific result from the tutorial instead of checking only that the process exits.
-- **Freeze:** Freeze the source fence, its caller, and the expected assertion together; the replay must run from a fresh temporary directory.
-- **Still-lacks:** This remains a P01 routing teaching model for tenant orders routed to shard owners; it does not claim production durability, concurrency, or distributed behavior beyond the stated experiment.
-- **Next:** Continue with the module's final boundary, carrying forward the state and invariant rather than restarting from a disconnected example.
-

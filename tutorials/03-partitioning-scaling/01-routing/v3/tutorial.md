@@ -38,6 +38,8 @@ assert owners[bisect_left(points, 90) % len(points)] == "a"
 `HashRing` 保存排序后的点位及拥有者；`owner_at` 只查位置，`node` 先对订单 ID 哈希再调用它。
 没有后台任务或存储修改。
 
+将下面的完整代码保存为 `labs/partitioning/routing/hashing.py`；文件已存在时，以本版内容替换该文件。
+
 <!-- checkpoint: labs/partitioning/routing/hashing.py -->
 ```python
 from hashlib import sha256

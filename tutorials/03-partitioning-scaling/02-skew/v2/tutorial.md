@@ -1,71 +1,14 @@
 # P02 v2：对子键计数做加盐
 
-本版使用可重复的整数请求计数模型。均匀键分布和固定hot键分布都记录每个分片请求量，不能只看平均值。加盐策略显式把子键轮转到分片，不承诺任意哈希会均匀；读取聚合必须遍历所有子键。
+v1 已经证明单个 hot 键不会随节点增多而拆开。本版把一个可加和计数器拆成四个子计数器：每次增量轮流写入一个子键，读取总数时必须把四个子键全部读出再求和。
 
-完整 checkpoint `labs/partitioning/skew/skew.py`：
+这是一种会改变读写契约的选择，不适用于必须原子读取单值的任意对象。教学模型显式规定子键编号对分片数取模，不声称任意哈希都能把四个子键完美分散。split_counter 创建本次实验的四个存储位置并返回每片写入数、求和结果和读取子键次数；它不修改真实服务。
 
-```python
-from __future__ import annotations
+先从仓库根目录执行 `uv sync --locked`。创建父目录后，完整替换 `labs/partitioning/skew/skew.py`：
 
-from collections import Counter
-import hashlib
-from typing import Iterable
-
-
-def route(key: str, partitions: int) -> int:
-    if partitions < 1:
-        raise ValueError("partitions must be positive")
-    return int.from_bytes(hashlib.sha256(key.encode()).digest()[:8], "big") % partitions
-
-
-def distribution(keys: Iterable[str], partitions: int) -> list[int]:
-    counts = [0] * partitions
-    for key in keys:
-        counts[route(key, partitions)] += 1
-    return counts
-
-
-def salted_counts(key: str, writes: int, salts: int, partitions: int) -> list[int]:
-    if writes < 0 or salts < 1:
-        raise ValueError("writes must be nonnegative and salts positive")
-    counts = [0] * partitions
-    for index in range(writes):
-        counts[index % salts % partitions] += 1
-    return counts
-
-
-def aggregate(keys: Iterable[str], partitions: int) -> tuple[list[int], int]:
-    counts = distribution(keys, partitions)
-    return counts, sum(counts)
-
-
-def main() -> None:
-    import argparse
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--partitions", type=int, default=4)
-    parser.add_argument("--hot-writes", type=int, default=900)
-    args = parser.parse_args()
-    uniform = [f"tenant-{index}" for index in range(1000)]
-    skewed = ["hot"] * args.hot_writes + [f"tenant-{index}" for index in range(100)]
-    print({"uniform": distribution(uniform, args.partitions), "skewed": distribution(skewed, args.partitions)})
-    print({"hot_salted": salted_counts("hot", args.hot_writes, args.partitions, args.partitions)})
-
-
-if __name__ == "__main__":
-    main()
-```
-
-```bash
-uv run python -m labs.partitioning.skew.skew --partitions 4
-uv run python -m pytest tests/partitioning/skew -q
-```
-
-v2 的验证是请求总量守恒、单个热键只能由一个分片处理、加盐后汇总不丢失。此模型不包含网络或数据库延迟，不能把分片请求数量直接解释为真实p99；容量需结合实际服务时间测量。
 <!-- checkpoint: labs/partitioning/skew/skew.py -->
 
 ```python
-from __future__ import annotations
-
 import hashlib
 from typing import Iterable
 
@@ -83,20 +26,6 @@ def distribution(keys: Iterable[str], partitions: int) -> list[int]:
     for key in keys:
         counts[route(key, partitions)] += 1
     return counts
-
-
-def salted_counts(key: str, writes: int, salts: int, partitions: int) -> list[int]:
-    if writes < 0 or salts < 1 or partitions < 1:
-        raise ValueError("writes must be nonnegative; salts and partitions positive")
-    counts = [0] * partitions
-    for index in range(writes):
-        counts[index % salts % partitions] += 1
-    return counts
-
-
-def profile(keys: Iterable[str], partitions: int) -> dict[str, list[int]]:
-    requests = list(keys)
-    return {"distinct_keys": distribution(set(requests), partitions), "requests": distribution(requests, partitions)}
 
 
 def split_counter(writes: int, salts: int, partitions: int) -> tuple[list[int], int, int]:
@@ -113,24 +42,27 @@ def split_counter(writes: int, salts: int, partitions: int) -> tuple[list[int], 
     return loads, total, salts
 
 
-def aggregate(keys: Iterable[str], partitions: int) -> tuple[list[int], int]:
-    counts = distribution(keys, partitions)
-    return counts, sum(counts)
-
-
-def main() -> None:
-    import argparse
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--partitions", type=int, default=4)
-    parser.add_argument("--hot-writes", type=int, default=900)
-    args = parser.parse_args()
-    uniform = [f"tenant-{index}" for index in range(1000)]
-    skewed = ["hot"] * args.hot_writes + [f"tenant-{index}" for index in range(100)]
-    print({"uniform": distribution(uniform, args.partitions), "skewed": distribution(skewed, args.partitions)})
-    print({"hot_salted": salted_counts("hot", args.hot_writes, args.partitions, args.partitions)})
-
-
 if __name__ == "__main__":
-    main()
-
+    assert max(distribution(["hot"] * 900, 4)) == 900
+    loads, total, reads = split_counter(900, salts=4, partitions=4)
+    assert loads == [225, 225, 225, 225] and total == 900 and reads == 4
+    assert split_counter(0, salts=4, partitions=4) == ([0, 0, 0, 0], 0, 4)
+    print({"writes_by_shard": loads, "total": total, "read_subkeys": reads})
 ```
+
+```bash
+uv run python -m labs.partitioning.skew.skew
+```
+
+应打印 writes_by_shard 为 [225, 225, 225, 225]，total 为 900，read_subkeys 为 4。写入压力分散的代价是读放大和跨子键一致性问题；本版只验证可加和整数、单进程执行。下一版通过明确的服务时间与到达间隔观察排队，而不把本版计数直接当作 p99。
+
+<details>
+<summary>可选：参考分支验证</summary>
+
+下面检查只在 [reference 的独立工作区](../../../../docs/reference-checks.md) 运行，使用当时的最终接口；验证当前学习代码请运行上面的命令和内置断言。
+
+```bash
+uv run python -m pytest tests/partitioning/skew -q
+```
+
+</details>

@@ -2,6 +2,8 @@
 
 Record writes after the copy watermark and replay them. Replaying the same sequence twice is harmless when sequence IDs are deduplicated.
 
+将下面的完整代码保存为 `checkpoint.py`；文件已存在时，以本版内容替换该文件。
+
 <!-- checkpoint: checkpoint.py -->
 
 ```python
@@ -86,3 +88,13 @@ assert migration.shards["b"][1]==2 and migration.shards["a"][2] is None; print({
 ```
 
 Deletes are values too: use `None` in the log and replay it as a tombstone rather than skipping the key.
+
+## 运行当前检查点
+
+按上面的路径保存完整文件后，从仓库根目录运行：
+
+```bash
+uv run python checkpoint.py
+```
+
+对照本页描述的状态、输出或断言；若没有出现预期结果，先停在当前版检查，不直接进入下一版。

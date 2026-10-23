@@ -2,6 +2,8 @@
 
 Migration phases must be restartable. A stale owner token must not write after cutover.
 
+将下面的完整代码保存为 `checkpoint.py`；文件已存在时，以本版内容替换该文件。
+
 <!-- checkpoint: checkpoint.py -->
 
 ```python
@@ -91,18 +93,24 @@ from pathlib import Path
 if len(sys.argv) == 3 and sys.argv[1] == "--child":
     state_path = Path(sys.argv[2]); state = json.loads(state_path.read_text())
     resumed = Migration(tuple(state["owners"])); resumed.route = Route(state["version"], tuple(state["owners"]))
-    resumed.fence = state["fence"]; resumed.sequence = state["sequence"]; resumed.log = [tuple(item) for item in state["log"]]; resumed.shards = state["shards"]
+    resumed.fence = state["fence"]; resumed.sequence = state["sequence"]; resumed.log = [tuple(item) for item in state["log"]]
+    resumed.shards = {owner: {int(key): value for key, value in rows.items()} for owner, rows in state["shards"].items()}
+    assert [resumed.read(key) for key in range(5)] == [10, 1, 22, None, 4]
     try: resumed.write_from_owner("a", 9, 98, state["fence"] - 1)
     except ValueError: stale_rejected = True
     else: stale_rejected = False
+    assert stale_rejected
     resumed.write_from_owner("b", 9, 99, state["fence"])
+    assert resumed.read(9) == 99
+    assert [resumed.read(key) for key in range(5)] == [10, 1, 22, None, 4]
     state["shards"] = resumed.shards; state["phase"] = "resumed"; state_path.write_text(json.dumps(state))
     print({"restarted": True, "stale_old_owner_rejected": stale_rejected, "new_owner_write": 99})
     raise SystemExit
 
 migration=Migration(("a",));
 for key in range(4): migration.write(key,key)
-watermark=migration.start_copy(("a","b")); migration.write(4,4); migration.apply_delta(("a","b"),watermark); barrier=migration.sequence; migration.cutover(("a","b"),barrier)
+migration.write(0,10)
+watermark=migration.start_copy(("a","b")); migration.write(2,22); migration.write(3,None); migration.write(4,4); migration.apply_delta(("a","b"),watermark); barrier=migration.sequence; migration.cutover(("a","b"),barrier)
 state=Path("migration-state.json"); state.write_text(json.dumps({"phase":"cutover","version":migration.route.version,"owners":["a","b"],"fence":migration.fence,"sequence":migration.sequence,"log":migration.log,"shards":migration.shards}))
 subprocess.run([sys.executable,__file__,"--child",str(state)],check=True)
 restarted=json.loads(state.read_text())
@@ -110,4 +118,16 @@ assert restarted["phase"] == "resumed" and restarted["shards"]["b"]["9"] == 99
 print({"restarted":True,"stale_old_owner_rejected":True,"new_owner_write":99,"changed_partition":True})
 ```
 
-Persisting the phase and fence token makes recovery explicit; a process restart can resume from the last durable phase.
+JSON 对象的键会变成字符串，因此在恢复入口把分片键一次性还原为整数；`read` 继续只接受原来的整数键。子进程先通过原接口读回 0..4（包括覆盖后的 10/22 与删除后的 None），再验证旧 token 拒绝、新 owner 写入以及旧数据不变。不能只检查 JSON 中新增的 `"9"`。
+
+这里保存并重开的是已完成 cutover 的本地 JSON 快照；没有在复制途中恢复，也没有原子发布或 fsync 协议，因此只证明新进程重建状态，不证明任意崩溃和断电安全。
+
+## 运行当前检查点
+
+按上面的路径保存完整文件后，从仓库根目录运行：
+
+```bash
+uv run python checkpoint.py
+```
+
+对照本页描述的状态、输出或断言；若没有出现预期结果，先停在当前版检查，不直接进入下一版。

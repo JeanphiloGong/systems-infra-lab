@@ -14,16 +14,3 @@
 
 RangeMap 仅保存共同使用的不可变元组配置，不隐藏存储或网络操作。
 不变量为点查归属和范围裁剪不漏数据。下一版回到扩容迁移量；本版不加入在线拆分。无提交。
-
-
-## Tutorial Increment
-
-- **Pressure:** The tenant orders routed to shard owners scenario makes the current checkpoint insufficient for the v2 requirement.
-- **Naive:** Keep the previous version's simplest behavior and record what it cannot observe or protect.
-- **Break:** [v1](../v1/tutorial.md) 的哈希路由对点查很方便。但要查询 `[99,101)` 的全部订单， 一般无法从两个端点知道中间键属于哪些哈希分片，往往需要散发查询后合并结果。
-- **Change:** # P01 v2：范围查询为什么要保留键的顺序; implement only the behavior introduced by this version and retain the previous checkpoint contract.
-- **Check:** Extract the complete source fence and run `uv run pytest tests/partitioning/routing -q`; assert the version-specific result from the tutorial instead of checking only that the process exits.
-- **Freeze:** Freeze the source fence, its caller, and the expected assertion together; the replay must run from a fresh temporary directory.
-- **Still-lacks:** This remains a P01 routing teaching model for tenant orders routed to shard owners; it does not claim production durability, concurrency, or distributed behavior beyond the stated experiment.
-- **Next:** Continue with v3 of P01 routing, carrying forward the state and invariant rather than restarting from a disconnected example.
-
