@@ -1,16 +1,14 @@
-# C02 v3: the resource must fence the paused leader
+# C02 v3：由资源拒绝旧 leader 写入
 
-A valid election cannot stop an old worker that resumes after a long pause. Start with a elected in term 1 and an acknowledged resource write. At exactly the lease deadline, the resource rejects a even before another leader is elected. After b wins term 2, b writes successor; a still believes it is leader but its old term is rejected at the resource.
+v2 保存了投票，却不能阻止暂停的旧 leader 恢复后继续写。现在让被写资源检查 owner、term 和到期时刻。这个资源是实验中可信且不重启的授权入口；选举成功后由模拟器注册新 owner，真实服务还需要验证授权证据并持久化 fence。
 
-Resource.write checks three conditions together: caller identity matches the registered owner, term equals the registered term, and the resource's current time is strictly before lease expiry. Checking only a token supplied by a client would allow arbitrary terms to masquerade as authority. The simulator's campaign method is the trusted registration path and invokes activation only after actual voter decisions form a majority.
+前置：完成 [v2](../v2/tutorial.md)。
 
-In this compressed model the resource and simulator share a monotonic test clock. Clients do not choose authority time in Election.write. A production resource must own that time source, authenticate leader registration, serialize checks with mutations, and preserve fencing state across its own restarts. None of those properties can be inferred from a worker possessing an integer.
+## 1. 由资源拒绝旧 leader 写入
 
-The scenario asserts rejection leaves the previous value unchanged, then reports successor as the value and term 2 as active. Leasing and fencing are independent: expiry blocks a lone paused leader; a newer term blocks it after succession.
+新增 `Resource.activate/write`，Election 只有赢得多数票才调用 activate。write 把当前节点身份交给资源；判断基于资源自己的逻辑时钟，等于 expires 就拒绝。这里没有租约续期，也不声称各机器时钟同步；资源换了 owner 后，即使旧节点后来获知新 term，也因 owner 不匹配被拒绝。
 
-## Complete Checkpoint
-
-Create the two files at their indicated paths in an empty directory. The code below is complete for this checkpoint. No repository source imports are needed beyond these extracted files.
+将 `labs/consensus/leader_election/model.py` 替换为本版完整 checkpoint：
 
 <!-- checkpoint: labs/consensus/leader_election/model.py -->
 
@@ -110,7 +108,7 @@ class Election:
 
     def campaign(self, candidate: str, term: int) -> bool:
         node = self.nodes[candidate]
-        if term < node.term:
+        if term <= node.term:
             return False
         votes = set()
         for name, peer in self.nodes.items():
@@ -137,19 +135,20 @@ class Election:
         self.resource.write(leader, node.term, self.now, value)
 ```
 
+## 2. 用实际状态检验结果
+
+保存下面的完整 `experiments.py`。每版保留已引入的检查，不使用 version 参数切换未来功能。
+
 <!-- checkpoint: labs/consensus/leader_election/experiments.py -->
 
 ```python
-from __future__ import annotations
-
-import json
 from pathlib import Path
+from tempfile import TemporaryDirectory
+import json
 import subprocess
 import sys
-from tempfile import TemporaryDirectory
 
 from labs.consensus.leader_election.model import Election, Node
-
 
 def reject_write(cluster: Election, owner: str) -> None:
     before = cluster.resource.value
@@ -161,43 +160,32 @@ def reject_write(cluster: Election, owner: str) -> None:
         raise AssertionError("stale write accepted")
 
 
-def run(version: int) -> dict[str, object]:
-    with TemporaryDirectory() as folder:
-        directory = Path(folder)
-        cluster = Election(directory)
-        if version == 0:
-            # The intentionally broken baseline treats silence as authority.
-            cluster.nodes["a"].leader = True
-            cluster.isolate("a")
-            cluster.now = 6
-            for node in cluster.nodes.values():
-                if node.timed_out(cluster.now):
-                    node.leader = True
-            beliefs = [n.name for n in cluster.nodes.values() if n.leader]
-            assert len(beliefs) == 3
-            return {"timeout_self_elected": beliefs, "split_brain": True}
-        if version == 1:
-            assert cluster.campaign("a", 1)
-            assert not cluster.campaign("b", 1)
-            assert all(n.vote == "a" for n in cluster.nodes.values())
-            cluster.broadcast("a")
-            cluster.now = 4
-            assert not cluster.nodes["b"].timed_out(cluster.now)
-            cluster.isolate("a")
-            cluster.now = 6
-            assert cluster.nodes["b"].timed_out(cluster.now)
-            assert cluster.campaign("b", 2)
-            assert cluster.nodes["a"].leader and cluster.nodes["b"].leader
-            assert cluster.nodes["c"].vote == "b"
-            return {"term1_winner": "a", "term2_winner": "b", "message_trace": cluster.messages}
-        if version == 2:
-            writer = """import os,sys
+def check_v1(directory):
+    cluster = Election(directory)
+    assert cluster.campaign('a', 1)
+    assert not cluster.campaign('b', 1)
+    assert all((n.vote == 'a' for n in cluster.nodes.values()))
+    cluster.broadcast('a')
+    cluster.now = 4
+    assert not cluster.nodes['b'].timed_out(cluster.now)
+    cluster.isolate('a')
+    cluster.now = 6
+    assert cluster.nodes['b'].timed_out(cluster.now)
+    assert cluster.campaign('b', 2)
+    assert cluster.nodes['a'].leader and cluster.nodes['b'].leader
+    assert cluster.nodes['c'].vote == 'b'
+    return {'term1_winner': 'a', 'term2_winner': 'b', 'message_trace': cluster.messages}
+
+
+def check_v2(directory):
+    cluster = Election(directory)
+    writer = """import os,sys
 from pathlib import Path
 from labs.consensus.leader_election.model import Node
 n=Node('a',Path(sys.argv[1])); assert n.request_vote('b',7)
 os._exit(71)
 """
-            reader = """import json,sys
+    reader = """import json,sys
 from pathlib import Path
 from labs.consensus.leader_election.model import Node
 n=Node('a',Path(sys.argv[1])); assert n.term==7 and n.vote=='b'
@@ -205,62 +193,44 @@ assert not n.request_vote('c',7); assert not n.request_vote('c',6)
 assert n.request_vote('b',7); assert not n.leader
 print(json.dumps({'recovered_term':n.term,'recovered_vote':n.vote,'double_vote_rejected':True}))
 """
-            failed = subprocess.run([sys.executable, "-c", writer, folder], timeout=10)
-            assert failed.returncode == 71
-            recovered = subprocess.run([sys.executable, "-c", reader, folder], check=True, capture_output=True, text=True, timeout=10)
-            return json.loads(recovered.stdout)
-        if version == 3:
-            assert cluster.campaign("a", 1)
-            cluster.write("a", "first")
-            cluster.now = 5
-            reject_write(cluster, "a")
-            cluster.isolate("a")
-            cluster.now = 6
-            assert cluster.campaign("b", 2)
-            cluster.write("b", "successor")
-            assert cluster.nodes["a"].leader
-            reject_write(cluster, "a")
-            return {"old_belief": True, "old_write_rejected": True, "value": cluster.resource.value, "resource_term": 2}
-        if version == 4:
-            outcomes = {}
-            for fault in ("partition", "gc_pause", "restart"):
-                case = directory / fault
-                case.mkdir()
-                cluster = Election(case)
-                assert cluster.campaign("a", 1)
-                cluster.write("a", "old")
-                cluster.isolate("a")
-                cluster.now = 6
-                assert cluster.campaign("b", 2)
-                cluster.write("b", "new")
-                if fault == "restart":
-                    cluster.nodes["a"] = Node("a", case, cluster.now)
-                belief = cluster.nodes["a"].leader
-                reject_write(cluster, "a")
-                cluster.blocked.clear()
-                cluster.broadcast("b")
-                assert cluster.nodes["a"].term == 2
-                assert not cluster.nodes["a"].leader
-                reject_write(cluster, "a")
-                outcomes[fault] = {"old_belief_before_heal": belief, "old_write_allowed": False, "term_after_heal": 2}
-            return outcomes
-        raise ValueError("version must be in 0..4")
+    failed = subprocess.run([sys.executable, '-c', writer, folder], timeout=10)
+    assert failed.returncode == 71
+    recovered = subprocess.run([sys.executable, '-c', reader, folder], check=True, capture_output=True, text=True, timeout=10)
+    return json.loads(recovered.stdout)
+
+
+def check_v3(directory):
+    cluster = Election(directory)
+    assert cluster.campaign('a', 1)
+    cluster.write('a', 'first')
+    cluster.now = 5
+    reject_write(cluster, 'a')
+    cluster.isolate('a')
+    cluster.now = 6
+    assert cluster.campaign('b', 2)
+    cluster.write('b', 'successor')
+    assert cluster.nodes['a'].leader
+    reject_write(cluster, 'a')
+    return {'old_belief': True, 'old_write_rejected': True, 'value': cluster.resource.value, 'resource_term': 2}
 
 
 if __name__ == "__main__":
-    print(json.dumps(run(int(sys.argv[1])), sort_keys=True))
+    with TemporaryDirectory() as folder:
+        case = Path(folder) / "v1"
+        case.mkdir()
+        print("v1", check_v1(case))
+        case = Path(folder) / "v2"
+        case.mkdir()
+        print("v2", check_v2(case))
+        case = Path(folder) / "v3"
+        case.mkdir()
+        print("v3", check_v3(case))
 ```
 
-From that directory, use Python 3.12 or later:
+从仓库根目录运行：
 
 ```bash
-python -m labs.consensus.leader_election.experiments 3
+uv run python -m labs.consensus.leader_election.experiments
 ```
 
-From the repository, replay just this printed checkpoint with:
-
-```bash
-uv run python tests/consensus/leader_election/replay_c02.py --version 3
-```
-
-Replay extracts both files into an empty temporary directory and runs a fresh interpreter there. Version 2 also starts its writer and reader children within that directory. No network service or credentials are required.
+先保留 v1/v2 检查，再检查期限恰好到 5 时写入失败、term2 的 b 可写 successor、a 仍自认 leader 但写入失败且值不变。没有日志复制，所以这只保护资源写权限。v4 扩充故障组合。

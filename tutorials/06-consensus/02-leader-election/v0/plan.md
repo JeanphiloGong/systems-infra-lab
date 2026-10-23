@@ -1,13 +1,9 @@
-# C02 v0: silence creates competing leader beliefs
+# C02 v0 实施计划：超时为什么会产生三个 leader
 
-Scenario: three workers contend for one resource while messages are delayed. A node must not self-elect on timeout alone; a term permits one vote per node.
+三个工作节点争用同一个写入口，六秒都没有收到心跳。最直接的做法是各自接管，但沉默只能说明没收到消息，不能证明别人停止工作。本版先实现这个错误：每个节点只有名字、最近心跳和 leader 判断，不提前引入任期、投票或租约。
 
-Pressure/check: isolate existing leader `a`, advance the logical clock to 6, and let each timed-out node declare itself leader. Expect `timeout_self_elected=['a','b','c']` and `split_brain=True`.
+1. `timed_out` 只比较逻辑时钟；实验没有真实网络，不用 sleep 就能稳定得到反例。循环让三个节点同时自封，输出不是人为指定的结论，而是读取三个节点的 leader 字段。
+2. 在 `experiments.py` 加入本版日程，保留前版已成立的检查。
+3. 执行 `uv run python -m labs.consensus.leader_election.experiments`。验收：应输出 a/b/c 三个名字以及 split_brain=True。此处断言通过意味着成功复现错误，不能拿来服务真实写入。下一版将用投票替换“超时即授权”。
 
-Change/freeze: freeze the complete `model.py` and `experiments.py` fences, executing only `run(0)`. The change is an observable timeout-only baseline; shared helper code includes later mechanisms, but this version does not exercise them.
-
-Limit/next: fixed three-node membership and no fencing of a paused leader. v1 makes timeout start a campaign but separates candidacy from authority.
-
-Replay: `uv run python tests/consensus/leader_election/replay_c02.py --version 0`.
-
-**Naive:** silence is treated as proof of leadership. **Break:** at logical time 6 all three nodes believe they lead. **Change:** expose this failure through `run(0)` and measured leader beliefs. **Check:** exact three names and `split_brain=True`. **Freeze:** the two complete tutorial fences, invoked with version 0. **Limit/Still-lacks:** this baseline neither elects by quorum nor fences writes. **Next:** v1 requires majority votes.
+文件与完整代码见 [正文](tutorial.md)。范围为一个模型变化和一个可直接运行的检查组；不需要参考分支。

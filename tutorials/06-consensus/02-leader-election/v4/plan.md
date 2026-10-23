@@ -1,13 +1,9 @@
-# C02 v4: belief, permission, and recovery
+# C02 v4 实施计划：在分区、暂停与重启后检查同一条规则
 
-Scenario: partitioned or restarted nodes retain an old belief while the quorum elects a newer owner. Old writes must remain forbidden until the node learns the newer term.
+v3 已有资源侧的拒绝规则。本版保留完整 model.py 不变，只增加三种故障日程，检查同一个规则是否一直成立。这是验证能力的增量，不是再次实现选主。分区与 GC 暂停都用暂停消息交付表示，重启则额外丢失内存中的 leader 判断。
 
-Pressure/change: model partition and restart separately from election, persist the epoch, and require current owner/term for resource writes and heartbeats.
+1. 沿用 v3 的文件。下面的完整 model checkpoint 便于核对，没有机制变化。实验先让 a 写 old，隔离 a 后由 b/c 选出 b 写 new，再尝试 a 的写入。恢复消息交付后再次检查 a，避免只证明旧 term 被拒绝而漏掉身份检查。
+2. 在 `experiments.py` 加入本版日程，保留前版已成立的检查。
+3. 执行 `uv run python -m labs.consensus.leader_election.experiments`。验收：所有早期检查仍运行。最后三行故障结果中，分区/暂停保留旧 belief，restart 不保留；三者都不能把 new 改成 stale。恢复后 a.term=2 且不是 leader。固定成员、可信资源和确定性消息日程是最终边界；接下来 C03 才复制日志。
 
-Checkpoint: replay reports partition and restart cases with `old_belief_before_heal=True` only where expected, and every `old_write_allowed` is false; healing updates the stale node before permission returns.
-
-Limit: fixed membership, local logical clock, and no linearizable read protocol. Later distributed-state lessons cover broader lease/replication failure recovery.
-
-Replay: `uv run python tests/consensus/leader_election/replay_c02.py --version 4`.
-
-**Naive:** equate local belief with permission after partition. **Break:** stale nodes attempt writes before healing. **Change:** persist epoch and require current owner/term for writes and heartbeats. **Check:** every `old_write_allowed` is false and healing updates term. **Freeze:** complete model/experiment fences. **Limit/Still-lacks:** no linearizable reads or dynamic membership. **Next:** distributed-state recovery.
+文件与完整代码见 [正文](tutorial.md)。范围为一个模型变化和一个可直接运行的检查组；不需要参考分支。
