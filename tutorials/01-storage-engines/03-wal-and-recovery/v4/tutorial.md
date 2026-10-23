@@ -21,6 +21,8 @@
 以下完整检查点更新 store.py，framing.py 不变。before_ack 表示即将返回，并不是客户已经收到响应。
 
 
+将下面的完整代码保存为 `labs/storage/wal/framing.py`；文件已存在时，以本版内容替换该文件。
+
 <!-- checkpoint: labs/storage/wal/framing.py -->
 ```python
 import json
@@ -63,6 +65,8 @@ def decode(data: bytes) -> tuple[list[dict[str, object]], int, bool]:
         position = end
     return records, position, False
 ```
+
+将下面的完整代码保存为 `labs/storage/wal/store.py`；文件已存在时，以本版内容替换该文件。
 
 <!-- checkpoint: labs/storage/wal/store.py -->
 ```python

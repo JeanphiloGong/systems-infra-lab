@@ -16,6 +16,8 @@ update_row先编码整个Order，再定位写56字节。update_columns先校验�
 
 以下完整检查点继承rows.py和columns.py，新增workloads.py。点查与更新引入精确调用者，所以各函数不增加无用包装层。
 
+将下面的完整代码保存为 `labs/storage/columnar/rows.py`；文件已存在时，以本版内容替换该文件。
+
 <!-- checkpoint: labs/storage/columnar/rows.py -->
 ```python
 from dataclasses import dataclass
@@ -71,6 +73,8 @@ def scan_rows(path: Path, region: str | None) -> tuple[int, int, int]:
     return total, reads, fields
 ```
 
+将下面的完整代码保存为 `labs/storage/columnar/columns.py`；文件已存在时，以本版内容替换该文件。
+
 <!-- checkpoint: labs/storage/columnar/columns.py -->
 ```python
 from pathlib import Path
@@ -101,6 +105,8 @@ def scan_columns(directory: Path, region: str | None) -> tuple[int, int, int]:
                 if unpack_text(regions[index * 12:(index + 1) * 12]) == region)
     return total, len(regions) + len(amounts), count * 2
 ```
+
+将下面的完整代码保存为 `labs/storage/columnar/workloads.py`；文件已存在时，以本版内容替换该文件。
 
 <!-- checkpoint: labs/storage/columnar/workloads.py -->
 ```python

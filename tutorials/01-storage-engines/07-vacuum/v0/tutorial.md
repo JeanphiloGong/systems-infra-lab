@@ -75,7 +75,17 @@ if __name__ == "__main__":
 ```bash
 export SYSTEMS_LAB_DATABASE_URL='postgresql://systems_lab:systems_lab_local_only@127.0.0.1:55432/systems_lab'
 uv run python -m labs.storage.vacuum.vacuum --rounds 5
+```
+
+<details>
+<summary>可选：参考分支验证</summary>
+
+以下命令只在 [reference 的独立工作区](../../../../docs/reference-checks.md) 执行，依赖其中的测试或重放脚本；不属于 main 当前版本的必做步骤。
+
+```bash
 uv run python -m pytest tests/storage/vacuum -q
 ```
+
+</details>
 
 测试要求逻辑行仍为1000，并记录死元组统计可能受统计刷新时机影响。下一版执行普通VACUUM，验证空间复用不等于文件立刻缩小。

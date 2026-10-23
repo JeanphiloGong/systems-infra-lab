@@ -1,7 +1,9 @@
 # S06：行存、列存与扫描
 
+在 `main` 按各版正文逐步创建实验文件，先完成前置版本再运行命令。路径是创建目标；旧测试和 replay 脚本仅供 `reference` 对照。参见 [从零学习约定](../../../docs/learning-workspace.md)。
+
 同一批订单，从完整行扫描走到列投影、地区字典、金额批次跳过，最后比较不同访问负载。
 
-路线：v0 行 → v1 列 → v2 字典 → v3 批次 → v4 工作负载。计划见 [plan.md](plan.md)。代码在 `labs/storage/columnar/`，测试在 `tests/storage/columnar/`。版本正文包含当时完整代码；最新源文件只保留一套。
+路线：v0 行 → v1 列 → v2 字典 → v3 批次 → v4 工作负载。计划见 [plan.md](plan.md)。代码创建目标是 `labs/storage/columnar/`，参考参考测试位于 `tests/storage/columnar/`。版本正文包含当时完整代码；`reference` 保存此前的最终源文件。
 
 统计应用层读写与操作数，不代表实际磁盘 I/O。文件不可并发修改；不提供多列更新的崩溃原子性。

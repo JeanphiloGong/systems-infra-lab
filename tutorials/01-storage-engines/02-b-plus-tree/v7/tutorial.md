@@ -4,6 +4,8 @@
 
 最终 checkpoint 包含下面两份完整文件，保存后即可独立运行。
 
+将下面的完整代码保存为 `labs/storage/bplus_tree/tree.py`；文件已存在时，以本版内容替换该文件。
+
 <!-- checkpoint: labs/storage/bplus_tree/tree.py -->
 ```python
 from __future__ import annotations
@@ -229,6 +231,8 @@ class BPlusTree(Generic[Value]):
         return True
 ```
 
+将下面的完整代码保存为 `labs/storage/bplus_tree/page_file.py`；文件已存在时，以本版内容替换该文件。
+
 <!-- checkpoint: labs/storage/bplus_tree/page_file.py -->
 ```python
 from __future__ import annotations
@@ -365,10 +369,17 @@ v0 的有序数组也能二分查找，不能拿它逐项比较的次数与树�
 
 运行完整检查：
 
+<details>
+<summary>可选：参考分支验证</summary>
+
+以下命令只在 [reference 的独立工作区](../../../../docs/reference-checks.md) 执行，依赖其中的测试或重放脚本；不属于 main 当前版本的必做步骤。
+
 ```bash
 uv run pytest tests/storage/bplus_tree/ -q
 uv run python tests/storage/bplus_tree/replay_s02.py
 ```
+
+</details>
 
 这些命令应验证随机树、叶链、页拓扑、CRC、截断、删除借位/合并、根收缩、比较计数和每个 v0-v7 教程版本的独立打印检查。生产 B+Tree 仍需要并发控制、WAL、检查点和故障恢复；本仓库没有把这些边界隐藏起来。
 
@@ -472,8 +483,18 @@ if __name__ == "__main__":
     main()
 ```
 
+<details>
+<summary>可选：参考分支验证</summary>
+
+以下命令只在 [reference 的独立工作区](../../../../docs/reference-checks.md) 执行，依赖其中的测试或重放脚本；不属于 main 当前版本的必做步骤。
+
 ```bash
 uv run pytest tests/storage/bplus_tree/test_s02_experiments.py -q
+```
+
+</details>
+
+```bash
 uv run python -m labs.storage.bplus_tree.experiments
 ```
 

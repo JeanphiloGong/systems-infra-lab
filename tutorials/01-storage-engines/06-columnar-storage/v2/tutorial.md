@@ -14,6 +14,8 @@ None不应变成空字符串。解码要求字典首项为None、其余项为字
 
 以下是新增dictionary.py的完整检查点。此模块只处理地区值列表，不依赖其他源码；v1列扫描器保持不变。
 
+将下面的完整代码保存为 `labs/storage/columnar/dictionary.py`；文件已存在时，以本版内容替换该文件。
+
 <!-- checkpoint: labs/storage/columnar/dictionary.py -->
 ```python
 import json

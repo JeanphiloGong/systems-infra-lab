@@ -16,6 +16,8 @@
 
 inspect_pending 只读取日志，不改写数据。它校验操作类型、事务编号、账户名与非负整数金额；非法日志抛错。完整文件如下，包含它依赖的 v1 编解码器：
 
+将下面的完整代码保存为 `labs/storage/wal/framing.py`；文件已存在时，以本版内容替换该文件。
+
 <!-- checkpoint: labs/storage/wal/framing.py -->
 ```python
 import json
@@ -58,6 +60,8 @@ def decode(data: bytes) -> tuple[list[dict[str, object]], int, bool]:
         position = end
     return records, position, False
 ```
+
+将下面的完整代码保存为 `labs/storage/wal/prepared.py`；文件已存在时，以本版内容替换该文件。
 
 <!-- checkpoint: labs/storage/wal/prepared.py -->
 ```python

@@ -6,6 +6,8 @@
 
 完整实现位于 `labs/storage/bplus_tree/page_file.py`，包含固定页编码、元页、节点页、CRC 校验、拓扑重建和 signed-64-bit 键值边界。以下是本版本完整检查点：
 
+将下面的完整代码保存为 `labs/storage/bplus_tree/tree.py`；文件已存在时，以本版内容替换该文件。
+
 <!-- checkpoint: labs/storage/bplus_tree/tree.py -->
 ```python
 from __future__ import annotations
@@ -134,6 +136,8 @@ class BPlusTree(Generic[Value]):
         return True
 ```
 
+将下面的完整代码保存为 `labs/storage/bplus_tree/page_file.py`；文件已存在时，以本版内容替换该文件。
+
 <!-- checkpoint: labs/storage/bplus_tree/page_file.py -->
 ```python
 from pathlib import Path
@@ -228,11 +232,20 @@ def load(path: Path) -> BPlusTree[int]:
     tree.validate()
     return tree
 
+```
+
+<details>
+<summary>可选：参考分支验证</summary>
+
+以下命令只在 [reference 的独立工作区](../../../../docs/reference-checks.md) 执行。自己的实现使用下方直接保存、重开与范围查询检查验证。
+
 ```bash
 uv run pytest tests/storage/bplus_tree/test_s02_persist.py -q
 ```
 
-检查覆盖 100 个随机插入后的页拓扑重开、空树、负键值、截断、额外字节、CRC 损坏和不可编码值不覆盖旧文件。通过后，持久化的是页结构与根页元数据，而不是一个会重新插入的键值清单；下一篇才处理删除借位、合并与根收缩。
+</details>
+
+参考测试覆盖 100 个随机插入后的页拓扑重开、空树、负键值、截断、额外字节、CRC 损坏和不可编码值不覆盖旧文件。下面的直接检查先验证页结构、根页元数据与范围查询；下一篇才处理删除借位、合并与根收缩。
 
 ```bash
 uv run python - <<'PY'

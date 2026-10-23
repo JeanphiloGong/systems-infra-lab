@@ -25,6 +25,8 @@ assert list(range(0 // 8, (8 - 1) // 8 + 1)) == [0]
 
 本次完整检查点包含两个文件。第一个保留 v1，第二个新增页读取与跨页拼接；下面没有隐藏依赖。
 
+将下面的完整代码保存为 `labs/storage/pages/records.py`；文件已存在时，以本版内容替换该文件。
+
 <!-- checkpoint: labs/storage/pages/records.py -->
 ```python
 from pathlib import Path
@@ -72,6 +74,8 @@ def direct(path: Path, key: int) -> tuple[int | None, int]:
         raise ValueError("key does not match slot")
     return value, len(data)
 ```
+
+将下面的完整代码保存为 `labs/storage/pages/paged.py`；文件已存在时，以本版内容替换该文件。
 
 <!-- checkpoint: labs/storage/pages/paged.py -->
 ```python

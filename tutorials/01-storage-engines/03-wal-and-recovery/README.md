@@ -1,5 +1,7 @@
 # S03：WAL 与崩溃恢复
 
+在 `main` 按各版正文逐步创建实验文件，先完成前置版本再运行命令。路径是创建目标；旧测试和 replay 脚本仅供 `reference` 对照。参见 [从零学习约定](../../../docs/learning-workspace.md)。
+
 从一次只扣款未入账的转账开始，逐步实现有边界的日志、事务提交标记、恢复与持久化确认顺序。前置是文件 I/O 与事务原子性；不依赖 S01 的代码。
 
 路线：[v0 部分更新](v0/tutorial.md) → [v1 日志帧](v1/tutorial.md) → [v2 先记日志](v2/tutorial.md) → [v3 提交与恢复](v3/tutorial.md) → [v4 持久化确认](v4/tutorial.md) → [v5 崩溃矩阵](v5/tutorial.md)。详细任务见 [plan.md](plan.md)。

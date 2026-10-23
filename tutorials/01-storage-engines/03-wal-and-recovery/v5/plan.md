@@ -7,16 +7,3 @@
 3. 重放全部六篇并运行行为测试，冻结有证据的进程崩溃模型，列出断电、并发、检查点与 exactly-once 边界。依赖任务 2，规模 M。
 
 不删除单写者前提，不把模拟fsync错误称为物理断电。root目录由调用者创建，测试只用临时目录。无新兼容抽象；worker 是真实 CLI 故障入口。提交策略：本轮不提交。
-
-
-## Tutorial Increment
-
-- **Pressure:** The a confirmed order write during a process crash scenario makes the current checkpoint insufficient for the v5 requirement.
-- **Naive:** Keep the previous version's simplest behavior and record what it cannot observe or protect.
-- **Break:** 前置 [v4](../v4/tutorial.md)。轨迹说明 fsync 在确认之前，但没有真的让进程在这些位置消失。现在给每个边界一个名字，让子进程在对应探针调用 os._exit(73)，随后启动全新的 Python 进程恢复两次。 本实验覆盖程序暴露的写入、flush、fsync、数据副本与确认边界，不声称覆盖文件系统内部所有指令。帧内部每个字节的截断由 v1 测试覆盖；真实断电与设备故障仍不在测试环境内。
-- **Change:** # S03 v5：在每个边界退出，再由新进程恢复; implement only the behavior introduced by this version and retain the previous checkpoint contract.
-- **Check:** Extract the complete source fence and run `uv run pytest tests/storage/wal -q`; assert the version-specific result from the tutorial instead of checking only that the process exits.
-- **Freeze:** Freeze the source fence, its caller, and the expected assertion together; the replay must run from a fresh temporary directory.
-- **Still-lacks:** This remains a S03 WAL/recovery teaching model for a confirmed order write during a process crash; it does not claim production durability, concurrency, or distributed behavior beyond the stated experiment.
-- **Next:** Continue with the module's final boundary, carrying forward the state and invariant rather than restarting from a disconnected example.
-

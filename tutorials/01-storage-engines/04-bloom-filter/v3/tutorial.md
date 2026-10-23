@@ -18,6 +18,8 @@ query 返回 (值或 None,本次表读取次数)。False 直接返回 (None,0)�
 
 以下三个文件形成完整检查点。第一份是冻结的 S05 v1 依赖，按原实现复制，不在本篇重写文件格式或编造替代接口。filter.py 保留 v2；新增 table.py 负责过滤与统计。
 
+将下面的完整代码保存为 `labs/storage/lsm/sstable.py`；文件已存在时，以本版内容替换该文件。
+
 <!-- checkpoint: labs/storage/lsm/sstable.py -->
 ```python
 from __future__ import annotations
@@ -89,6 +91,8 @@ if __name__ == "__main__":
     main()
 ```
 
+将下面的完整代码保存为 `labs/storage/bloom/filter.py`；文件已存在时，以本版内容替换该文件。
+
 <!-- checkpoint: labs/storage/bloom/filter.py -->
 ```python
 from __future__ import annotations
@@ -128,6 +132,8 @@ def theoretical_false_positive_rate(bits: int, hashes: int, inserted: int) -> fl
         raise ValueError("positive bits/hashes and nonnegative inserted required")
     return (1 - math.exp(-hashes * inserted / bits)) ** hashes
 ```
+
+将下面的完整代码保存为 `labs/storage/bloom/table.py`；文件已存在时，以本版内容替换该文件。
 
 <!-- checkpoint: labs/storage/bloom/table.py -->
 ```python

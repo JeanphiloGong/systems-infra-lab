@@ -6,6 +6,8 @@
 
 本版将完整实现直接冻结如下，读者可以保存为目标文件后运行，不需要由 replay harness 补文件。
 
+将下面的完整代码保存为 `labs/storage/bplus_tree/tree.py`；文件已存在时，以本版内容替换该文件。
+
 <!-- checkpoint: labs/storage/bplus_tree/tree.py -->
 ```python
 from __future__ import annotations
@@ -233,9 +235,16 @@ class BPlusTree(Generic[Value]):
 
 运行：
 
+<details>
+<summary>可选：参考分支验证</summary>
+
+以下命令只在 [reference 的独立工作区](../../../../docs/reference-checks.md) 执行，依赖其中的测试或重放脚本；不属于 main 当前版本的必做步骤。
+
 ```bash
 uv run pytest tests/storage/bplus_tree/test_s02_delete.py -q
 ```
+
+</details>
 
 ```bash
 uv run python - <<'PY'

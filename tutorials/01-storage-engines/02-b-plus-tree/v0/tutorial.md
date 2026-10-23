@@ -6,6 +6,8 @@
 
 在 `[20, 40]` 中插入 30，必须把 40 向右移动；直接 append 会破坏有序不变量。`bisect_left` 找到第一个不小于 key 的位置，然后检查是否真的相等。
 
+将下面的完整代码保存为 `labs/storage/bplus_tree/array_index.py`；文件已存在时，以本版内容替换该文件。
+
 <!-- checkpoint: labs/storage/bplus_tree/array_index.py -->
 ```python
 from bisect import bisect_left

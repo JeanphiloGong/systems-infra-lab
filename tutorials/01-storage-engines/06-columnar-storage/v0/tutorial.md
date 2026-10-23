@@ -16,6 +16,8 @@ scan_rows 返回 (总金额,应用读到字节数,布局中扫描字段数)。�
 
 以下新建 labs/storage/columnar/rows.py，构成完整检查点：
 
+将下面的完整代码保存为 `labs/storage/columnar/rows.py`；文件已存在时，以本版内容替换该文件。
+
 <!-- checkpoint: labs/storage/columnar/rows.py -->
 ```python
 from dataclasses import dataclass

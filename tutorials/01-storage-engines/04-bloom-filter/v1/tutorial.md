@@ -20,6 +20,8 @@ second 设为奇数，在位数是二的幂时避免步长只访问一部分位�
 
 以下新建 labs/storage/bloom/filter.py。参数必须为正；重复 add 不改变已设置的位。
 
+将下面的完整代码保存为 `labs/storage/bloom/filter.py`；文件已存在时，以本版内容替换该文件。
+
 <!-- checkpoint: labs/storage/bloom/filter.py -->
 ```python
 from __future__ import annotations

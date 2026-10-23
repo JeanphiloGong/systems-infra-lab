@@ -69,7 +69,17 @@ if __name__ == "__main__":
 ```bash
 export SYSTEMS_LAB_DATABASE_URL='postgresql://systems_lab:systems_lab_local_only@127.0.0.1:55432/systems_lab'
 uv run python -m labs.storage.vacuum.full
+```
+
+<details>
+<summary>可选：参考分支验证</summary>
+
+以下命令只在 [reference 的独立工作区](../../../../docs/reference-checks.md) 执行，依赖其中的测试或重放脚本；不属于 main 当前版本的必做步骤。
+
+```bash
 uv run python -m pytest tests/storage/vacuum -q
 ```
+
+</details>
 
 compare在普通VACUUM后记录大小，再让reader持有读事务，VACUUM FULL在worker中等待，通过pg_blocking_pids确认锁边界后释放；最终大小和COUNT实际报告。

@@ -18,6 +18,8 @@
 
 完整检查点替换 `paged.py`，其余两个文件仍与 v3 相同。新增状态是容量和缓存，新增分支只有命中更新、缺失后按容量淘汰。读失败不会把不完整页放入缓存。
 
+将下面的完整代码保存为 `labs/storage/pages/records.py`；文件已存在时，以本版内容替换该文件。
+
 <!-- checkpoint: labs/storage/pages/records.py -->
 ```python
 from pathlib import Path
@@ -65,6 +67,8 @@ def direct(path: Path, key: int) -> tuple[int | None, int]:
         raise ValueError("key does not match slot")
     return value, len(data)
 ```
+
+将下面的完整代码保存为 `labs/storage/pages/paged.py`；文件已存在时，以本版内容替换该文件。
 
 <!-- checkpoint: labs/storage/pages/paged.py -->
 ```python
@@ -129,6 +133,8 @@ class PageReader:
             raise ValueError("key does not match slot")
         return value
 ```
+
+将下面的完整代码保存为 `labs/storage/pages/workload.py`；文件已存在时，以本版内容替换该文件。
 
 <!-- checkpoint: labs/storage/pages/workload.py -->
 ```python
@@ -241,6 +247,18 @@ PY
 
 ## 完成这个模块后
 
-运行 `uv run pytest tests/storage/pages/ -q` 检查最终代码。正文旧版本通过 `uv run python tests/storage/pages/replay_s01.py` 在临时目录提取完整文件并执行各篇打印的检查；不会覆盖你的工作目录。
+可选执行 [参考分支检查](../../../../docs/reference-checks.md) 检查最终代码。正文旧版本通过 [参考分支检查](../../../../docs/reference-checks.md) 在临时目录提取完整文件并执行各篇打印的检查；不会覆盖你的工作目录。
 
 你现在可以从相同记录出发解释扫描成本、直接定位假设、跨页放大、相同集合的不同排列和 LRU 淘汰。这个缓存仍不是生产数据库缓冲池：它没有更新一致性、并发访问、脏页或 pin/unpin；下一模块学习 B+Tree 时可以使用这里的页模型，但需要另行定义节点布局。
+
+<details>
+<summary>可选：参考分支验证</summary>
+
+以下命令只在 [reference 的独立工作区](../../../../docs/reference-checks.md) 执行，依赖其中的测试或重放脚本；不属于 main 当前版本的必做步骤。
+
+```bash
+uv run pytest tests/storage/pages/ -q
+uv run python tests/storage/pages/replay_s01.py
+```
+
+</details>

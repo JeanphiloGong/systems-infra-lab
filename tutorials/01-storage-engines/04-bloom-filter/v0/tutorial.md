@@ -10,6 +10,8 @@ query_files 接收路径列表和键，返回 (值或 None, 已读取文件数)�
 
 新建 labs/storage/bloom/baseline.py，以下是完整检查点：
 
+将下面的完整代码保存为 `labs/storage/bloom/baseline.py`；文件已存在时，以本版内容替换该文件。
+
 <!-- checkpoint: labs/storage/bloom/baseline.py -->
 ```python
 from pathlib import Path

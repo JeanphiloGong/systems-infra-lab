@@ -30,6 +30,8 @@ assert shuffled != sequential
 
 下面是完整三文件检查点。保留原两个文件，新增 `workload.py`；它没有自动执行入口，调用者负责数据规模、种子与结果输出。
 
+将下面的完整代码保存为 `labs/storage/pages/records.py`；文件已存在时，以本版内容替换该文件。
+
 <!-- checkpoint: labs/storage/pages/records.py -->
 ```python
 from pathlib import Path
@@ -77,6 +79,8 @@ def direct(path: Path, key: int) -> tuple[int | None, int]:
         raise ValueError("key does not match slot")
     return value, len(data)
 ```
+
+将下面的完整代码保存为 `labs/storage/pages/paged.py`；文件已存在时，以本版内容替换该文件。
 
 <!-- checkpoint: labs/storage/pages/paged.py -->
 ```python
@@ -129,6 +133,8 @@ class PageReader:
             raise ValueError("key does not match slot")
         return value
 ```
+
+将下面的完整代码保存为 `labs/storage/pages/workload.py`；文件已存在时，以本版内容替换该文件。
 
 <!-- checkpoint: labs/storage/pages/workload.py -->
 ```python

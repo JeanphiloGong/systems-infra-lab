@@ -16,6 +16,8 @@ write_batches按原顺序切组，每组写v1的四个列文件，同时从同�
 
 以下完整检查点包含rows.py、columns.py和新增batches.py。v2字典算法已独立验证，本篇有意使用固定宽地区，以便直接计算每批读取字节。
 
+将下面的完整代码保存为 `labs/storage/columnar/rows.py`；文件已存在时，以本版内容替换该文件。
+
 <!-- checkpoint: labs/storage/columnar/rows.py -->
 ```python
 from dataclasses import dataclass
@@ -71,6 +73,8 @@ def scan_rows(path: Path, region: str | None) -> tuple[int, int, int]:
     return total, reads, fields
 ```
 
+将下面的完整代码保存为 `labs/storage/columnar/columns.py`；文件已存在时，以本版内容替换该文件。
+
 <!-- checkpoint: labs/storage/columnar/columns.py -->
 ```python
 from pathlib import Path
@@ -101,6 +105,8 @@ def scan_columns(directory: Path, region: str | None) -> tuple[int, int, int]:
                 if unpack_text(regions[index * 12:(index + 1) * 12]) == region)
     return total, len(regions) + len(amounts), count * 2
 ```
+
+将下面的完整代码保存为 `labs/storage/columnar/batches.py`；文件已存在时，以本版内容替换该文件。
 
 <!-- checkpoint: labs/storage/columnar/batches.py -->
 ```python

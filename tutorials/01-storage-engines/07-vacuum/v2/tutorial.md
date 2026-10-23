@@ -52,7 +52,17 @@ if __name__ == "__main__":
 ```bash
 export SYSTEMS_LAB_DATABASE_URL='postgresql://systems_lab:systems_lab_local_only@127.0.0.1:55432/systems_lab'
 uv run python -m labs.storage.vacuum.snapshot
+```
+
+<details>
+<summary>可选：参考分支验证</summary>
+
+以下命令只在 [reference 的独立工作区](../../../../docs/reference-checks.md) 执行，依赖其中的测试或重放脚本；不属于 main 当前版本的必做步骤。
+
+```bash
 uv run python -m pytest tests/storage/vacuum -q
 ```
+
+</details>
 
 reader在第一条SELECT建立RR快照，writer更新并VACUUM；reader仍读旧总和，writer读新值。快照结束后再清理。

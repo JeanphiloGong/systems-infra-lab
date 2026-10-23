@@ -14,6 +14,8 @@ validate 在原结构检查之后，比较树的深度优先叶序与 next 链�
 
 下面完整替换 tree.py，只新增 next、分裂链接、scan 与链检查。尚未写磁盘，下一篇会先定义页号和二进制页边界，而不是把整个键集合保存后重新插入。
 
+将下面的完整代码保存为 `labs/storage/bplus_tree/tree.py`；文件已存在时，以本版内容替换该文件。
+
 <!-- checkpoint: labs/storage/bplus_tree/tree.py -->
 ```python
 from __future__ import annotations

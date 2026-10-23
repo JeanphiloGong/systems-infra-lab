@@ -18,6 +18,8 @@ validate 用断言验证严格有序、叶容量、子节点数、父分隔键�
 
 下面完整替换 labs/storage/bplus_tree/tree.py，不需要导入旧的 LeafPage。v1 的单叶类留作历史对照，本版给它增加父节点关系并将容量提升为树级约定。
 
+将下面的完整代码保存为 `labs/storage/bplus_tree/tree.py`；文件已存在时，以本版内容替换该文件。
+
 <!-- checkpoint: labs/storage/bplus_tree/tree.py -->
 ```python
 from __future__ import annotations

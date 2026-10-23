@@ -10,6 +10,8 @@ m 位，k 个近似均匀独立位置，插入 n 个不同键后，一位仍为�
 
 新增 theoretical_false_positive_rate：m、k 必须正，n 可为零；非法参数抛错，零插入率为零。完整 filter.py 如下，原位数组算法不变。
 
+将下面的完整代码保存为 `labs/storage/bloom/filter.py`；文件已存在时，以本版内容替换该文件。
+
 <!-- checkpoint: labs/storage/bloom/filter.py -->
 ```python
 from __future__ import annotations
@@ -55,6 +57,8 @@ def theoretical_false_positive_rate(bits: int, hashes: int, inserted: int) -> fl
 新增 measure.py 的 sweep，取三个参数列表的笛卡尔积。插入 present-i，负探测 absent-i，两组键按构造保证不重合。每行记录 bits、hashes、inserted、bytes、probes、false_positives、false_negatives、theory、measured。
 
 false_negatives 是必须为零的正确性指标；false_positives/probes 是性能权衡指标。bytes 只代表位数组有效载荷，不是进程 RSS。sweep 不修改文件，也不使用网络。
+
+将下面的完整代码保存为 `labs/storage/bloom/measure.py`；文件已存在时，以本版内容替换该文件。
 
 <!-- checkpoint: labs/storage/bloom/measure.py -->
 ```python

@@ -16,6 +16,8 @@
 
 下面完整替换 tree.py。相较 v2，只解除了根的溢出拒绝并加入递归传播；仍没有叶链、范围接口或磁盘。
 
+将下面的完整代码保存为 `labs/storage/bplus_tree/tree.py`；文件已存在时，以本版内容替换该文件。
+
 <!-- checkpoint: labs/storage/bplus_tree/tree.py -->
 ```python
 from __future__ import annotations

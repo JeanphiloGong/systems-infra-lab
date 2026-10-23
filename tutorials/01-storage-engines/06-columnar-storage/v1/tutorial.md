@@ -16,6 +16,8 @@ scan_columns 只打开两列，检查长度为字段宽度整数倍且行数一�
 
 以下完整检查点保留 rows.py 的数据模型，新增 columns.py：
 
+将下面的完整代码保存为 `labs/storage/columnar/rows.py`；文件已存在时，以本版内容替换该文件。
+
 <!-- checkpoint: labs/storage/columnar/rows.py -->
 ```python
 from dataclasses import dataclass
@@ -70,6 +72,8 @@ def scan_rows(path: Path, region: str | None) -> tuple[int, int, int]:
                 total += amount
     return total, reads, fields
 ```
+
+将下面的完整代码保存为 `labs/storage/columnar/columns.py`；文件已存在时，以本版内容替换该文件。
 
 <!-- checkpoint: labs/storage/columnar/columns.py -->
 ```python

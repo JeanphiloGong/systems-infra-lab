@@ -20,6 +20,8 @@ operation_N_written 与 commit_written 只表示 Python 缓冲写入返回；是
 
 完整检查点包括以下三个文件：
 
+将下面的完整代码保存为 `labs/storage/wal/framing.py`；文件已存在时，以本版内容替换该文件。
+
 <!-- checkpoint: labs/storage/wal/framing.py -->
 ```python
 import json
@@ -62,6 +64,8 @@ def decode(data: bytes) -> tuple[list[dict[str, object]], int, bool]:
         position = end
     return records, position, False
 ```
+
+将下面的完整代码保存为 `labs/storage/wal/store.py`；文件已存在时，以本版内容替换该文件。
 
 <!-- checkpoint: labs/storage/wal/store.py -->
 ```python
@@ -165,6 +169,8 @@ class Store:
         return state
 ```
 
+将下面的完整代码保存为 `labs/storage/wal/crash_worker.py`；文件已存在时，以本版内容替换该文件。
+
 <!-- checkpoint: labs/storage/wal/crash_worker.py -->
 ```python
 import argparse
@@ -265,10 +271,22 @@ PY
 
 预期输出 19 条矩阵恢复状态和 `v5: 20 crash cases recovered atomically`。最后一个修尾故障单独检查，不打印状态行。早期边界只断言原子性，避免把 Python 缓冲行为当持久化合同。后续边界在这个进程退出模型下必须恢复新值。重复恢复相同，体现 after-image 重放的幂等性。
 
-运行 `uv run pytest tests/storage/wal/ -q` 检查最终代码；运行 `uv run python tests/storage/wal/replay_s03.py` 在独立临时目录重放六篇正文。完整帧损坏会报错而不是静默丢弃，未完成尾帧不会被当成提交。
+可选执行 [参考分支检查](../../../../docs/reference-checks.md) 检查最终代码；可选执行 [参考分支检查](../../../../docs/reference-checks.md) 在独立临时目录重放六篇正文。完整帧损坏会报错而不是静默丢弃，未完成尾帧不会被当成提交。
 
 ## 这个恢复模型仍然缺少什么
 
 日志永不截断，恢复成本随历史增长；生产系统需要检查点与日志保留协议，本项目在 A02 继续。单写者约定没有通过跨进程锁强制实现，并发运行两个 writer 会破坏合同。data.json 是可丢弃副本，外部读取它可能看到部分写入；正式读接口必须用 recover 或后续一致的内存状态。
 
 调用方遇到未确认结果仍要查询事务结果，不能随便换事务号重复转账。这里实现的是简化 redo 事务日志，既不是 ARIES，也不是 exactly-once 业务处理，更没有用进程退出测试证明真实断电恢复。
+
+<details>
+<summary>可选：参考分支验证</summary>
+
+以下命令只在 [reference 的独立工作区](../../../../docs/reference-checks.md) 执行，依赖其中的测试或重放脚本；不属于 main 当前版本的必做步骤。
+
+```bash
+uv run pytest tests/storage/wal/ -q
+uv run python tests/storage/wal/replay_s03.py
+```
+
+</details>
